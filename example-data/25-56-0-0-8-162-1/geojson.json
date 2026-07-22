@@ -1,0 +1,40 @@
+{
+  "type": "Feature",
+  "id": "25-56-0-0-8-162-1",
+  "year": 2022,
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [0.87729827, 41.74318963],
+        [0.87680735, 41.74320183],
+        [0.87675267, 41.74698142],
+        [0.87688907, 41.74697710],
+        [0.87729992, 41.74696164],
+        [0.87729827, 41.74318963]
+      ]
+    ]
+  },
+  "properties": {
+    "location": {
+      "province": "LLEIDA",
+      "city": "AGRAMUNT",
+      "municipality": "AGRAMUNT",
+      "geographicSpot": "POLIGONO 8 - PARCELA 162",
+      "ccaa": "CATALUÑA"
+    },
+    "crop": {
+      "id": "ALFALFA",
+      "name": "ALFALFA",
+      "varietyId": "",
+      "variety": "PRIM"
+    },
+    "slope": 12,
+    "area": 18104.42262243,
+    "areaSIGPAC": 18104.42262243,
+    "parcelUse": "TA",
+    "irrigationCoef": 100,
+    "admisibility": 0,
+    "rainfedOrIrrigated": "Irrigated"
+  }
+}
