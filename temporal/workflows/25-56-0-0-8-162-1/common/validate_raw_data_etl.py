@@ -1,7 +1,11 @@
 from ast import Tuple
 from utils.functions import DB_MinioClient
 from utils.constants import Constants
-from etl.__validation__.schemas import activities_schema, recintos_almendros_parcelas_schema, recintos_almendros_tratamientos_schema
+# NOTA: el import original apuntaba a 'etl.__validation__.schemas', un módulo que no existe
+# en el repo (habría dado ModuleNotFoundError). Se corrige para apuntar al schemas.py real,
+# igual que hacen el resto de ficheros ETL de este mismo digital twin. Esto no es un cambio
+# de adaptación a alfalfa, es un bug preexistente que aprovechamos a arreglar de paso.
+from common.schemas import activities_schema, recintos_alfalfa_parcelas_schema, recintos_alfalfa_tratamientos_schema
 import io
 import pandas as pd
 import pandera as pa
@@ -123,11 +127,11 @@ async def check_schema_by_name(df: pd.DataFrame) -> Tuple[pd.DataFrame, str]:
     if df_validated is not None:
         metadata = Constants.METADATA_ACTIVITIES.value
         return df_validated, metadata
-    df_validated = await check_schema(df, recintos_almendros_parcelas_schema)
+    df_validated = await check_schema(df, recintos_alfalfa_parcelas_schema)
     if df_validated is not None:
         metadata = Constants.METADATA_PARCELS_AND_TREATMENTS.value
         return df_validated, metadata
-    df_validated = await check_schema(df, recintos_almendros_tratamientos_schema)
+    df_validated = await check_schema(df, recintos_alfalfa_tratamientos_schema)
     if df_validated is not None:
         metadata = Constants.METADATA_PARCELS_AND_TREATMENTS.value
         return df_validated, metadata

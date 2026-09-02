@@ -9,6 +9,16 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 # import simpy
 
+# --- Parámetros del modelo de alfalfa (valores ilustrativos, ajustables) ---
+# Temperatura base para el cálculo de grados-día de crecimiento (GDD) de la alfalfa.
+GDD_BASE_TEMP_C = 5
+# GDD acumulados aproximados entre corte y corte (base 5°C). Con este umbral,
+# en un ciclo típico de primavera/verano se obtienen ciclos de ~28-35 días.
+GDD_PER_CUT = 450
+# Años a partir de los cuales se considera que el alfalfar debería resembrarse
+# porque su rendimiento decae de forma notable.
+MAX_STAND_AGE_YEARS = 5
+
 @dataclass
 class Time:
     day: int
@@ -122,44 +132,68 @@ def set_humidity(weather, time: Time):
 class DigitalTwin:
     id: str
     name: str
-    num_trees: int
-    affected_trees: int
-    dead_trees: int
+    area_ha: float          # superficie total de la parcela de alfalfa
+    area_lost_ha: float     # superficie perdida de forma permanente (plaga/enfermedad persistente)
+    area_affected_pct: float  # % de la superficie con un brote activo (recuperable con tratamiento)
+    stand_age_years: float  # edad del alfalfar desde la última siembra/resiembra
     start_date: str
     end_date: str
     time_elapsed: int
-    sun_hours: int
-    cold_hours: int
-    prec_accumulated: int
+    gdd_accumulated: float  # grados-día de crecimiento acumulados desde el último corte
+    prec_accumulated: int   # precipitación acumulada desde el último corte (proxy de estrés hídrico)
+    cut_number: int         # número de corte dentro de la simulación
     crop_stage: str
     # soil: Soil
     harvest: dict
-    
+
 def update(digital_twin: dict, time: dict, weather: dict):
     digital_twin["time_elapsed"] += 1
-    if weather["temperature"] > 25:
-        digital_twin["sun_hours"] += 1
-    if weather["temperature"] < 10:
-        digital_twin["cold_hours"] += 1
+
+    # Grados-día de crecimiento: aproximación horaria de un cálculo que
+    # normalmente se hace a nivel diario ((Tmax+Tmin)/2 - Tbase).
+    gdd_hour = max(0, weather["temperature"] - GDD_BASE_TEMP_C) / 24
+    digital_twin["gdd_accumulated"] += gdd_hour
+
     if weather["precipitation"] > 0:
         digital_twin["prec_accumulated"] += weather["precipitation"]
-    if digital_twin["sun_hours"] > 100 and digital_twin["cold_hours"] > 100 and digital_twin["prec_accumulated"] > 100:
-        digital_twin["crop_stage"] = "Mature"
-    if digital_twin["crop_stage"] == "Mature":
+
+    # La alfalfa no "madura una vez al año": rebrota y se corta varias veces
+    # por temporada en cuanto acumula suficiente calor útil.
+    if digital_twin["gdd_accumulated"] >= GDD_PER_CUT:
+        digital_twin["crop_stage"] = "ReadyToCut"
+
+    if digital_twin["crop_stage"] == "ReadyToCut":
+        effective_area = max(0.0, digital_twin["area_ha"] - digital_twin["area_lost_ha"])
+        healthy_fraction = max(0.0, 1 - digital_twin["area_affected_pct"] / 100)
+        # El rendimiento por corte decae con la edad del alfalfar.
+        stand_age_factor = max(0.5, 1 - 0.05 * digital_twin["stand_age_years"])
+        # Proxy simple de estrés hídrico: poca lluvia acumulada desde el corte anterior penaliza el rendimiento.
+        water_stress_factor = 1.0 if digital_twin["prec_accumulated"] > 15 else 0.85
+        # Rango de rendimiento por corte en regadío (t de materia seca / ha). Valor ilustrativo.
+        base_yield_t_ms_ha = random.uniform(1.2, 2.2)
+        yield_t_ms_ha = base_yield_t_ms_ha * stand_age_factor * water_stress_factor
+
+        digital_twin["cut_number"] += 1
         digital_twin["harvest"] = {
             "date": f"{time['year']}-{time['month']}-{time['day']} {time['hour']}:00:00",
-            "numTrees": digital_twin["num_trees"],
-            "affectedTrees": digital_twin["affected_trees"],
-            "deadTrees": digital_twin["dead_trees"],
-            "yield": digital_twin["num_trees"] - digital_twin["dead_trees"],
-            "harvestKg": (digital_twin["num_trees"] - digital_twin["dead_trees"]) * random.uniform(5, 30)
+            "cutNumber": digital_twin["cut_number"],
+            "areaHa": digital_twin["area_ha"],
+            "areaLostHa": round(digital_twin["area_lost_ha"], 3),
+            "areaAffectedPct": round(digital_twin["area_affected_pct"], 2),
+            "yieldTonMsPerHa": round(yield_t_ms_ha, 3),
+            "harvestTonsMs": round(effective_area * healthy_fraction * yield_t_ms_ha, 3)
         }
-        digital_twin["affected_trees"] = 0
-        digital_twin["dead_trees"] = 0
-        digital_twin["sun_hours"] = 0
-        digital_twin["cold_hours"] = 0
+
+        # Solo se reinicia el ciclo de rebrote, no todo el alfalfar
+        # (area_lost_ha y stand_age_years son acumulativos entre cortes).
+        digital_twin["gdd_accumulated"] = 0
         digital_twin["prec_accumulated"] = 0
         digital_twin["crop_stage"] = "Growing"
+        # Envejecimiento aproximado del alfalfar (1 año ≈ 8760 horas simuladas).
+        digital_twin["stand_age_years"] = round(digital_twin["time_elapsed"] / 8760, 2)
+        if digital_twin["stand_age_years"] >= MAX_STAND_AGE_YEARS:
+            # Resiembra: a partir de aquí se considera un alfalfar nuevo.
+            digital_twin["stand_age_years"] = 0
 
 @dataclass
 class Plague:
@@ -172,15 +206,17 @@ class Plague:
 def treat(plague: dict, digital_twin: dict):
     treatment_probability = 0.1
     if plague["duration"] > 7:
-        digital_twin["dead_trees"] += 1
+        # Una plaga persistente deja daño permanente en parte de la superficie afectada
+        area_permanently_lost = digital_twin["area_ha"] * (digital_twin["area_affected_pct"] / 100) * 0.1
+        digital_twin["area_lost_ha"] = round(digital_twin["area_lost_ha"] + area_permanently_lost, 4)
         plague["duration"] = 0
-    if digital_twin["affected_trees"] > 0:
+    if digital_twin["area_affected_pct"] > 0:
         plague["duration"] += 1
         # More hours pass, more probability of treatment
         treatment_probability += 0.075 * plague["duration"]
         # Let the odds decide
         if random.random() < treatment_probability:
-            digital_twin["affected_trees"] -= 1
+            digital_twin["area_affected_pct"] = max(0, digital_twin["area_affected_pct"] - random.uniform(2, 8))
             plague["duration"] = 0
 
 def affect(weather: dict, digital_twin: dict):
@@ -193,7 +229,7 @@ def affect(weather: dict, digital_twin: dict):
         affect_probability -= random.uniform(0.2, 0.4)
     # let the odds decide
     if random.random() < affect_probability:
-        digital_twin["affected_trees"] += 1
+        digital_twin["area_affected_pct"] = min(100, digital_twin["area_affected_pct"] + random.uniform(1, 5))
 
 def spread(weather: dict, digital_twin: dict):
     spread_probability = 0
@@ -205,7 +241,7 @@ def spread(weather: dict, digital_twin: dict):
         spread_probability += random.uniform(0.6, 0.8)
     # let the odds decide
     if random.random() < spread_probability:
-        digital_twin["affected_trees"] += 1
+        digital_twin["area_affected_pct"] = min(100, digital_twin["area_affected_pct"] + random.uniform(1, 5))
 
 @dataclass
 class InputNextStage:
@@ -245,7 +281,7 @@ async def run_simulation(input: InputNextStage):
             plagues.remove(plague)
     # Update digital twin
     update(digital_twin, time, weather)
-    # Check if there has been a new harvest
+    # Check if there has been a new harvest (corte)
     if digital_twin["harvest"] is not None:
         await load_result(InputLoadResult(digital_twin["harvest"], input.simulation_id, input.digital_twin_id))
         digital_twin["harvest"] = None
@@ -308,7 +344,7 @@ class InputCreateSimulation:
     simulation_id: str
     start_date: str
     end_date: str
-    num_trees: int
+    area_ha: float
 
 @activity.defn()
 async def create_simulation(input: InputCreateSimulation):
@@ -323,7 +359,7 @@ async def create_simulation(input: InputCreateSimulation):
             "timestamp": pd.Timestamp.now(),
             "startDate": pd.to_datetime(input.start_date),
             "endDate": pd.to_datetime(input.end_date),
-            "numTrees": input.num_trees,
+            "areaHa": input.area_ha,
             "terminated": False,
             "results": []
         },
@@ -335,10 +371,12 @@ class InputEndSimulation:
     simulation_id: str
 
 @activity.defn()
-async def end_simulation():
+async def end_simulation(input: InputEndSimulation):
+    # NOTA: en el original esta función no recibía el parámetro `input`
+    # pero lo usaba en el cuerpo (NameError garantizado). Se corrige aquí
+    # de paso, no es un cambio relacionado con la adaptación a alfalfa.
     from pymongo import MongoClient
     import os
-    import pandas as pd
     client = MongoClient(os.getenv("MONGO_URI"))
     database = client[input.digital_twin_id]
     database["SimulationResults"].update_one(
@@ -352,13 +390,11 @@ async def end_simulation():
         }
     )
 
-    
-
 
 @dataclass
 class Input_Run:
     digital_twin_id: str
-    num_trees: int
+    area_ha: float
     start_date: str
     end_date: str
 
@@ -396,11 +432,11 @@ class HarvestAiSimulationWorkflow:
         workflow_id = workflow.info().workflow_id
         # Split this: simulation_<simulation-id> and get <simulation-id>
         simulation_id = workflow_id.split("_")[1]
-        await workflow.execute_activity(create_simulation, InputCreateSimulation(input.digital_twin_id, simulation_id, input.start_date, input.end_date, input.num_trees),
+        await workflow.execute_activity(create_simulation, InputCreateSimulation(input.digital_twin_id, simulation_id, input.start_date, input.end_date, input.area_ha),
                                         start_to_close_timeout=timedelta(seconds=10),
                                         retry_policy=RetryPolicy(maximum_attempts=2, backoff_coefficient=1))
         self.time = Time(day=int(input.start_date.split("-")[2]), month=int(input.start_date.split("-")[1]), year=int(input.start_date.split("-")[0]), hour=0, hour_duration=1)
-        self.digital_twin = DigitalTwin(input.digital_twin_id, "Digital Twin Pistachio", input.num_trees, 0, 0, input.start_date, input.end_date, 0, 0, 0, 0, "Growing", None)
+        self.digital_twin = DigitalTwin(input.digital_twin_id, "Digital Twin Alfalfa", input.area_ha, 0, 0, 0, input.start_date, input.end_date, 0, 0, 0, 0, "Growing", None)
         self.weather = Weather(0, 0, 0, "N", 0)
         self.plagues = []
         while True:
@@ -419,7 +455,9 @@ async def main():
     client = await Client.connect("localhost:7233", namespace="25-56-0-0-8-162-1")
     async with Worker(client, task_queue="harvest-simulation-task-queue", workflows=[HarvestAiSimulationWorkflow], activities=[run_simulation, create_simulation]) as worker:
         await client.execute_workflow(HarvestAiSimulationWorkflow.run,
-                                      Input_Run(enclosure_id="25-56-0-0-8-162-1", num_trees=100, start_date="2022-01-01", end_date="2022-12-31"),
+                                      # NOTA: el original pasaba `enclosure_id=` pero el dataclass Input_Run
+                                      # espera `digital_twin_id` (otro bug preexistente, corregido de paso).
+                                      Input_Run(digital_twin_id="25-56-0-0-8-162-1", area_ha=1.81, start_date="2022-01-01", end_date="2022-12-31"),
                                       id=f"harvest-simulation-{random.randint(0, 1000)}",
                                       task_queue="harvest-simulation-task-queue",
                                       retry_policy=RetryPolicy(maximum_attempts=1))

@@ -47,32 +47,44 @@ async def get_data() -> list[dict]:
   # Rename value by ndvi
   data = data.rename(columns={"value": "ndvi"})
   # Prepare data for a model
-  # Aggregate data by year
-  data["year"] = data["date"].dt.year
-  # Get dates where the yield is not null
-  dates = data.dropna(subset=["yield"])[["year", "date"]]
-  data = data.groupby("year").agg(
+  # La alfalfa no se cosecha una vez al año como un frutal: se corta varias veces
+  # por temporada (4-6 cortes/año en regadío). Agrupar por año (como en el original
+  # pensado para pistacho) dejaría solo un corte por año y tiraría el resto de datos.
+  # En su lugar, agrupamos por "corte": cada grupo abarca desde el día siguiente al
+  # corte anterior hasta el día del corte actual (inclusive) - el mismo criterio que
+  # usa el notebook de entrenamiento (ml-training/harvest-ai-model.ipynb) y que se
+  # corresponde con el reinicio de gdd_accumulated/prec_accumulated tras cada corte
+  # en la simulación (simulations/harvest_ai_simulation.py).
+  data = data.sort_values("date").reset_index(drop=True)
+  data["is_harvest"] = data["yield"].notna()
+  data["corte"] = data["is_harvest"].shift(1, fill_value=False).cumsum() + 1
+  data = data.groupby("corte").agg(
       {
-          "height": "first",
-          "prec": "sum",
+          "date": "last",     # fecha del corte
+          "height": "last",   # altura de la alfalfa justo antes del corte
+          "prec": "sum",       # lluvia acumulada durante el ciclo de rebrote
           "tmax": "max",
           "tmin": "min",
           "tmed": "mean",
           "windSpeed": "mean",
           "windGust": "mean",
           "ndvi": "mean",
-          "yield": "first"
+          "yield": "last"      # el valor de cosecha se registra el día del corte
       }
   )
-  # Add dates
+  # El groupby deja "corte" como índice: lo recuperamos como columna
   data = data.reset_index()
-  data = pd.merge(data, dates, on="year", how="left")
+  # Descartamos ciclos sin un corte real registrado todavía
+  data = data.dropna(subset=["yield"])
   # Set the date as index
   data = data.set_index("date")
   # Add year, month and day as features
   data["year"] = data.index.year
   data["month"] = data.index.month
   data["day"] = data.index.day
+  # Número de corte dentro de cada año (1º, 2º, 3º corte...); aporta señal de
+  # estacionalidad ya que los primeros cortes de la temporada suelen rendir más
+  data["cutInYear"] = data.groupby("year").cumcount() + 1
   # Astype categorical features
   data["year"] = data["year"].astype("category")
   data["month"] = data["month"].astype("category")
@@ -101,7 +113,7 @@ async def train_model(input: Input_TrainModel) -> None:
       from sklearn.metrics import mean_squared_error
       data = pd.DataFrame(input.data)
       data = data.dropna(subset=["yield"])
-      X = data.drop(columns=["yield", "day", "month", "year"])
+      X = data.drop(columns=["yield", "day", "month", "year", "corte"])
       y = data[["yield", "day", "month"]]
       X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, shuffle=False, random_state=123)
       model = RandomForestRegressor(random_state=123)
@@ -127,7 +139,7 @@ class Input_Predict:
 async def predict_yield(input: Input_Predict) -> list:
   model = await get_model()
   # return flatened list
-  return model.predict(pd.DataFrame(input.new_data).drop(columns=["yield", "day", "month", "year"])).ravel().tolist()
+  return model.predict(pd.DataFrame(input.new_data).drop(columns=["yield", "day", "month", "year", "corte"])).ravel().tolist()
 
 @dataclass
 class Input_Load:

@@ -14,5 +14,10 @@ python3 /etc/temporal/workflows/47-96-0-0-5-20-1/etl/static-info/init_workers.py
 python3 /etc/temporal/workflows/47-96-0-0-5-20-1/etl/activities/init_workers.py &
 python3 /etc/temporal/workflows/47-96-0-0-5-20-1/prediction/init_workers.py &
 python3 /etc/temporal/workflows/47-96-0-0-5-20-1/simulations/init_workers.py &
+# 25-56-0-0-8-162-1 (alfalfa)
+python3 /etc/temporal/workflows/25-56-0-0-8-162-1/etl/static-info/init_workers.py &
+python3 /etc/temporal/workflows/25-56-0-0-8-162-1/etl/activities/init_workers.py &
+python3 /etc/temporal/workflows/25-56-0-0-8-162-1/prediction/init_workers.py &
+python3 /etc/temporal/workflows/25-56-0-0-8-162-1/simulations/init_workers.py &
 
 tail -f /dev/null

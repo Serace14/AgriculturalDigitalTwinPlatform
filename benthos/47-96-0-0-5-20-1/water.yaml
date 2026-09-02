@@ -1,4 +1,6 @@
 # https://www.youtube.com/watch?v=EA2Pco3EvpU
+http:
+  address: ":4197"
 
 input:
   label: "mqtt_test"

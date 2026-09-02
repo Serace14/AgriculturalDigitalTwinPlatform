@@ -8,7 +8,15 @@ activities_schema = pa.DataFrameSchema({
     "RECINTO ID": pa.Column(pa.String, nullable=True),
 }, coerce=True)
 
-recintos_almendros_parcelas_schema = pa.DataFrameSchema({
+# Antes: recintos_almendros_parcelas_schema (pensado para frutal: Nº Arboles, Marcoplantacionh)
+# Alfalfa es un cultivo herbáceo de siembra directa, no de plantación de pies individuales,
+# así que se eliminan los campos que solo tienen sentido para árboles:
+#   - "Nº Arboles": no hay un recuento de individuos en un cultivo sembrado a voleo/en líneas
+#   - "Marcoplantacionh": el "marco de plantación" (separación entre árboles) no aplica aquí
+# Se mantiene "Densidaddesiembra" (densidad de siembra, p.ej. kg semilla/ha), que de hecho es
+# un dato más relevante para alfalfa que para un frutal. También se mantiene "AñoPlantacion"
+# (año de siembra), útil para calcular la edad del alfalfar (ver stand_age_years en la simulación).
+recintos_alfalfa_parcelas_schema = pa.DataFrameSchema({
     "ProductorNIF": pa.Column(pa.String, required=False),
     "Cosecha": pa.Column(pa.Int),
     "Provincia Id": pa.Column(pa.String),
@@ -28,8 +36,6 @@ recintos_almendros_parcelas_schema = pa.DataFrameSchema({
     "SistemaDeRiego": pa.Column(pa.String, nullable=True),
     "RegimenTenenciaId": pa.Column(pa.String, nullable=True),
     "AñoPlantacion": pa.Column(pa.Int, nullable=True),
-    "Nº Arboles": pa.Column(pa.Int, nullable=True),
-    "Marcoplantacionh": pa.Column(pa.String, nullable=True),
     "Densidaddesiembra": pa.Column(pa.String, nullable=True),
     "ATRIA / ADV / ASV": pa.Column(pa.String, nullable=True),
     "ZonaVulnerable": pa.Column(pa.String, nullable=True),
@@ -43,7 +49,7 @@ recintos_almendros_parcelas_schema = pa.DataFrameSchema({
     "Zona SIE": pa.Column(pa.String),
 }, coerce=True, unique_column_names=True)
 
-recintos_almendros_tratamientos_schema = pa.DataFrameSchema({
+recintos_alfalfa_tratamientos_schema = pa.DataFrameSchema({
     "MovimientoCosecha": pa.Column(pa.Int),
     "MovimientoFechaDeInicio": pa.Column(pa.DateTime),
     "Producto": pa.Column(pa.String, nullable=True),
@@ -78,6 +84,8 @@ recintos_almendros_tratamientos_schema = pa.DataFrameSchema({
     "UsoDeParcelasId": pa.Column(pa.String, nullable=True),
 }, coerce=True, unique_column_names=True)
 
+# Genérico (id, fecha, valor de cosecha) - válido tal cual para alfalfa,
+# "cosecha" puede interpretarse como t MS/ha por corte en vez de kg por árbol.
 harvest_schema = pa.DataFrameSchema({
     "id": pa.Column(pa.String, nullable=True),
     "fecha": pa.Column(pa.String, nullable=True),
