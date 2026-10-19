@@ -236,7 +236,7 @@ func (r *temporalConn) SetNewYield(digitalTwinId string, FileName string, fromBu
 	return nil
 }
 
-func (r *temporalConn) StartSimulation(digitalTwinId string, startDate time.Time, endDate time.Time, numTrees int) (string, error) {
+func (r *temporalConn) StartSimulation(digitalTwinId string, startDate time.Time, endDate time.Time, areaHa float64) (string, error) {
 	// UUID for new simulation
 	simulationId := uuid.Must(uuid.NewV4()).String()
 	workflowOptions := client.StartWorkflowOptions{
@@ -247,16 +247,16 @@ func (r *temporalConn) StartSimulation(digitalTwinId string, startDate time.Time
 		},
 	}
 	type Input struct {
-		DigitalTwinId string `json:"digital_twin_id"`
-		StartDate     string `json:"start_date"`
-		EndDate       string `json:"end_date"`
-		NumTrees      int    `json:"num_trees"`
+		DigitalTwinId string  `json:"digital_twin_id"`
+		StartDate     string  `json:"start_date"`
+		EndDate       string  `json:"end_date"`
+		AreaHa        float64 `json:"area_ha"`
 	}
 	input := Input{
 		DigitalTwinId: digitalTwinId,
 		StartDate:     startDate.Format("2006-01-02"),
 		EndDate:       endDate.Format("2006-01-02"),
-		NumTrees:      numTrees,
+		AreaHa:        areaHa,
 	}
 	_, err := r.GetClient(digitalTwinId).ExecuteWorkflow(context.Background(), workflowOptions, "HarvestAiSimulationWorkflow", input)
 	if err != nil {

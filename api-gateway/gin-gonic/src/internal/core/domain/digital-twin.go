@@ -238,12 +238,13 @@ type SensorData struct {
 }
 
 type SimulationResults struct {
-	Date          string  `json:"date"`
-	NumTrees      int     `json:"numTrees"`
-	AffectedTrees int     `json:"affectedTrees"`
-	DeadTrees     int     `json:"deadTrees"`
-	Yield         int     `json:"yield"`
-	HarvestKg     float64 `json:"harvestKg"`
+	Date            string  `json:"date"`
+	CutNumber       int     `json:"cutNumber"`
+	AreaHa          float64 `json:"areaHa"`
+	AreaLostHa      float64 `json:"areaLostHa"`
+	AreaAffectedPct float64 `json:"areaAffectedPct"`
+	YieldTonMsPerHa float64 `json:"yieldTonMsPerHa"`
+	HarvestTonsMs   float64 `json:"harvestTonsMs"`
 }
 
 type Simulation struct {
@@ -251,7 +252,7 @@ type Simulation struct {
 	TimeStamp    time.Time           `json:"timestamp"`
 	StartDate    time.Time           `json:"startDate"`
 	EndDate      time.Time           `json:"endDate"`
-	NumTrees     int                 `json:"numTrees"`
+	AreaHa       float64             `json:"areaHa"`
 	Results      []SimulationResults `json:"results"`
 }
 

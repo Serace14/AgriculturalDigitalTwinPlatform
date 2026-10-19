@@ -6,7 +6,7 @@ with workflow.unsafe.imports_passed_through():
     import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from common.functions import DB_MongoClient
-from historical_weather_dto import historical_weather_dto, check_if_number
+from historical_weather_dto import historical_weather_dto, check_if_number, check_if_number_or_none
 from temporalio.client import Client
 from temporalio.worker import Worker
 from temporalio.common import RetryPolicy
@@ -80,6 +80,12 @@ async def transform(input: Input_Transform) -> list[dict]:
                 "windSpeed": check_if_number(weather_data.get("velmedia") or None),
                 "windGust": check_if_number(weather_data.get("racha") or None),
                 "windGustTime": str(weather_data.get("horaracha") or None),
+                # Humedad relativa (%) y horas de sol: la API las devuelve pero antes se
+                # descartaban. None si la estación no las mide (no se rellenan con 0).
+                "humidityMean": check_if_number_or_none(weather_data.get("hrMedia")),
+                "humidityMax": check_if_number_or_none(weather_data.get("hrMax")),
+                "humidityMin": check_if_number_or_none(weather_data.get("hrMin")),
+                "sunHours": check_if_number_or_none(weather_data.get("sol")),
         })
     return weather_data_list
 

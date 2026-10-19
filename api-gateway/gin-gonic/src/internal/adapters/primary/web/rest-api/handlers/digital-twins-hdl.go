@@ -466,7 +466,7 @@ func (hdl *DigitalTwinsHTTPHandler) GetSensorStreamData(c *gin.Context) {
 type StartSimulationIn struct {
 	StartDate time.Time `form:"startDate"`
 	EndDate   time.Time `form:"endDate"`
-	NumTrees  int       `form:"numTrees"`
+	AreaHa    float64   `form:"areaHa"`
 }
 
 // @Summary Start Simulation
@@ -485,14 +485,14 @@ func (hdl *DigitalTwinsHTTPHandler) StartSimulation(c *gin.Context) {
 	startSimulationIn := StartSimulationIn{}
 	err := c.ShouldBind(&startSimulationIn)
 	if err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"message": err.Error(), "valid_input": map[string]string{"startDate": "time.Time, required", "maxTimeElapse": "time.Duration, required", "numTrees": "int, required"}})
+		c.AbortWithStatusJSON(400, gin.H{"message": err.Error(), "valid_input": map[string]string{"startDate": "time.Time, required", "maxTimeElapse": "time.Duration, required", "areaHa": "float64, required"}})
 		return
 	}
-	if startSimulationIn.NumTrees < 1 || startSimulationIn.StartDate.After(startSimulationIn.EndDate) {
+	if startSimulationIn.AreaHa <= 0 || startSimulationIn.StartDate.After(startSimulationIn.EndDate) {
 		c.AbortWithStatusJSON(400, gin.H{"message": apperrors.ErrInvalidInput.Error()})
 		return
 	}
-	simulationId, err := hdl.digitalTwinsService.StartSimulation(digitalTwinId, startSimulationIn.StartDate, startSimulationIn.EndDate, startSimulationIn.NumTrees)
+	simulationId, err := hdl.digitalTwinsService.StartSimulation(digitalTwinId, startSimulationIn.StartDate, startSimulationIn.EndDate, startSimulationIn.AreaHa)
 	if err != nil {
 		c.AbortWithStatusJSON(500, gin.H{"message": err.Error()})
 		return

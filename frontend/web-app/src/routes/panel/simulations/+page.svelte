@@ -49,7 +49,7 @@
 							><strong>Inicio</strong>: {formattedTime(simulation.startDate)} -
 							<strong>Finaliza</strong>: {formattedTime(simulation.endDate)}</span
 						>
-						<p class="m-0"><strong>Número árboles</strong>: {simulation.numTrees}</p>
+						<p class="m-0"><strong>Superficie</strong>: {simulation.areaHa} ha</p>
 					</a>
 				{/each}
 			{:catch error}

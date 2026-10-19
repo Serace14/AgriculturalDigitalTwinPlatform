@@ -67,8 +67,8 @@ class DigitalTwinsService implements IDigitalTwinsService {
 	getYieldPredictions(digitalTwinId: string, startDate?: Date, endDate?: Date) {
 		return this.parcelsRepository.getYieldPredictions(digitalTwinId, startDate, endDate);
 	}
-	createNewSimulation(digitalTwinId: string, startDate: Date, endDate: Date, numTrees: number) {
-		return this.parcelsRepository.createNewSimulation(digitalTwinId, startDate, endDate, numTrees);
+	createNewSimulation(digitalTwinId: string, startDate: Date, endDate: Date, areaHa: number) {
+		return this.parcelsRepository.createNewSimulation(digitalTwinId, startDate, endDate, areaHa);
 	}
 	getSimulations(digitalTwinId: string) {
 		return this.parcelsRepository.getSimulations(digitalTwinId);

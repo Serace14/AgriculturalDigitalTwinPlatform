@@ -259,7 +259,7 @@ class HttpDigitalTwinsRepository implements IParcelsRepository {
 		digitalTwinId: string,
 		startDate: Date,
 		endDate: Date,
-		numTrees: number
+		areaHa: number
 	): Promise<string> {
 		return this.http
 			.post<string>(
@@ -267,7 +267,7 @@ class HttpDigitalTwinsRepository implements IParcelsRepository {
 				{
 					startDate,
 					endDate,
-					numTrees
+					areaHa
 				},
 				{
 					withCredentials: true

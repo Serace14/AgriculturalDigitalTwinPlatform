@@ -43,7 +43,7 @@ interface IDigitalTwinsRepository {
 		digitalTwinId: string,
 		startDate: Date,
 		endDate: Date,
-		numTrees: number
+		areaHa: number
 	): Promise<string>;
 	getSimulations(digitalTwinId: string): Promise<SimulationInfo[]>;
 	stopSimulation(digitalTwinId: string, simulationId: string): Promise<void>;

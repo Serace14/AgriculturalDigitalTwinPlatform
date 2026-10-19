@@ -87,8 +87,8 @@ func (srv *digitalTwinsService) GetPrediction(digitalTwin string, predictionType
 	return srv.persistence.GetPrediction(digitalTwin, predictionType, startDate, endDate)
 }
 
-func (srv *digitalTwinsService) StartSimulation(digitalTwinId string, startDate time.Time, endDate time.Time, numTrees int) (string, error) {
-	return srv.workflows.StartSimulation(digitalTwinId, startDate, endDate, numTrees)
+func (srv *digitalTwinsService) StartSimulation(digitalTwinId string, startDate time.Time, endDate time.Time, areaHa float64) (string, error) {
+	return srv.workflows.StartSimulation(digitalTwinId, startDate, endDate, areaHa)
 }
 
 func (srv *digitalTwinsService) GetSimulations(digitalTwinId string) ([]domain.Simulation, error) {

@@ -9,12 +9,34 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 # import simpy
 
-# --- Parámetros del modelo de alfalfa (valores ilustrativos, ajustables) ---
+# --- Parámetros del modelo de alfalfa ---
+# Calibrados con cortes reales (Excel "Kg y cortes" + "parcelario": 708 cortes de
+# 59 plantaciones, 2016-2024; solo plantaciones con superficie sin ambigüedad).
 # Temperatura base para el cálculo de grados-día de crecimiento (GDD) de la alfalfa.
 GDD_BASE_TEMP_C = 5
-# GDD acumulados aproximados entre corte y corte (base 5°C). Con este umbral,
-# en un ciclo típico de primavera/verano se obtienen ciclos de ~28-35 días.
-GDD_PER_CUT = 450
+# GDD acumulados entre corte y corte (base 5°C). AJUSTADO con 300 temporadas
+# simuladas para que, con el clima sintético de esta simulación, salgan 5 cortes
+# al año, un ciclo mediano de ~37 días y el 1er corte hacia el día 127 (real: ciclo
+# mediano 39 días con rango 34-45, 5 cortes/año de mediana, 1er corte el día 127).
+# Si cambias el generador de clima sintético, hay que recalibrar este valor.
+GDD_PER_CUT = 580
+# Temporada de crecimiento: los cortes reales van de abril a octubre (el primer
+# corte cae de mediana hacia el 7 de mayo). Fuera de ella la alfalfa está en reposo.
+SEASON_START_MONTH = 4
+SEASON_END_MONTH = 10
+# Rendimiento por corte (t materia seca / ha) según el nº de corte de la temporada:
+# {nº corte: (mediana, sigma del logaritmo)} - distribución lognormal ajustada a los
+# datos reales. El corte 6 tiene pocas muestras (n=23).
+CUT_YIELD_T_MS_HA = {
+    1: (1.95, 0.58),
+    2: (2.22, 0.62),
+    3: (2.51, 0.54),
+    4: (1.71, 0.61),
+    5: (1.21, 0.70),
+    6: (0.65, 0.82),
+}
+# Tope de seguridad para valores extremos de la lognormal (el p95 real es 4.4 t MS/ha).
+MAX_YIELD_T_MS_HA = 6.0
 # Años a partir de los cuales se considera que el alfalfar debería resembrarse
 # porque su rendimiento decae de forma notable.
 MAX_STAND_AGE_YEARS = 5
@@ -57,7 +79,9 @@ def set_rain(weather: dict):
     # let the odds decide
     if random.random() < rain_probability:
         rain_quantity = random.uniform(0, 30)
-        weather["precipitation"] = rain_quantity
+    # La precipitación es la de ESTA hora: si no llueve vale 0 (antes conservaba el
+    # valor de la última lluvia y se acumulaba como si lloviera todas las horas).
+    weather["precipitation"] = rain_quantity
         
 def set_sky_state(weather: dict):
     states = ["S", "C", "N", "P"]
@@ -149,6 +173,17 @@ class DigitalTwin:
 def update(digital_twin: dict, time: dict, weather: dict):
     digital_twin["time_elapsed"] += 1
 
+    # Reposo invernal: fuera de la temporada no hay rebrote ni cortes. El contador
+    # de cortes (cut_number) es "corte de la temporada" y se reinicia cada año.
+    if not (SEASON_START_MONTH <= time["month"] <= SEASON_END_MONTH):
+        digital_twin["crop_stage"] = "Dormant"
+        digital_twin["cut_number"] = 0
+        digital_twin["gdd_accumulated"] = 0
+        digital_twin["prec_accumulated"] = 0
+        return
+    if digital_twin["crop_stage"] == "Dormant":
+        digital_twin["crop_stage"] = "Growing"
+
     # Grados-día de crecimiento: aproximación horaria de un cálculo que
     # normalmente se hace a nivel diario ((Tmax+Tmin)/2 - Tbase).
     gdd_hour = max(0, weather["temperature"] - GDD_BASE_TEMP_C) / 24
@@ -169,11 +204,13 @@ def update(digital_twin: dict, time: dict, weather: dict):
         stand_age_factor = max(0.5, 1 - 0.05 * digital_twin["stand_age_years"])
         # Proxy simple de estrés hídrico: poca lluvia acumulada desde el corte anterior penaliza el rendimiento.
         water_stress_factor = 1.0 if digital_twin["prec_accumulated"] > 15 else 0.85
-        # Rango de rendimiento por corte en regadío (t de materia seca / ha). Valor ilustrativo.
-        base_yield_t_ms_ha = random.uniform(1.2, 2.2)
-        yield_t_ms_ha = base_yield_t_ms_ha * stand_age_factor * water_stress_factor
 
         digital_twin["cut_number"] += 1
+        # Rendimiento base según el nº de corte de la temporada (datos reales).
+        median, sigma = CUT_YIELD_T_MS_HA[min(digital_twin["cut_number"], max(CUT_YIELD_T_MS_HA))]
+        base_yield_t_ms_ha = min(random.lognormvariate(math.log(median), sigma), MAX_YIELD_T_MS_HA)
+        yield_t_ms_ha = base_yield_t_ms_ha * stand_age_factor * water_stress_factor
+
         digital_twin["harvest"] = {
             "date": f"{time['year']}-{time['month']}-{time['day']} {time['hour']}:00:00",
             "cutNumber": digital_twin["cut_number"],
@@ -286,7 +323,9 @@ async def run_simulation(input: InputNextStage):
         await load_result(InputLoadResult(digital_twin["harvest"], input.simulation_id, input.digital_twin_id))
         digital_twin["harvest"] = None
     # Check if simulation has ended
-    if pd.to_datetime(str(time["day"]) + "/" + str(time["month"]) + "/" + str(time["year"])) > pd.to_datetime(digital_twin["end_date"]):
+    # OJO: no usar pd.to_datetime("d/m/yyyy"): pandas lo interpreta mes/día cuando ambos
+    # son <= 12 (6/4/2022 -> 4 de junio) y la simulación terminaba antes de tiempo.
+    if datetime(time["year"], time["month"], time["day"]) > datetime.strptime(digital_twin["end_date"], "%Y-%m-%d"):
         return digital_twin, weather, time, plagues, True
     await load_status(InputLoadStatus(digital_twin, time, weather, [plague for plague in plagues], input.simulation_id, input.digital_twin_id))
     return digital_twin, weather, time, plagues, False

@@ -31,7 +31,7 @@ type DigitalTwinsService interface {
 	GetSensorData(digitalTwin string, sensorType string, startDate time.Time, endDate time.Time) ([]domain.SensorData, error)
 	SetNewActivities(digitalTwinId string, FileName string, fromBucket string) error
 	SetNewYield(digitalTwinId string, FileName string, fromBucket string) error
-	StartSimulation(digitalTwin string, startDate time.Time, endDate time.Time, numTrees int) (string, error)
+	StartSimulation(digitalTwin string, startDate time.Time, endDate time.Time, areaHa float64) (string, error)
 	GetSimulations(digitalTwin string) ([]domain.Simulation, error)
 	StopSimulation(digitalTwin string, simulationId string) error
 	ResumeSimulation(digitalTwin string, simulationId string) error

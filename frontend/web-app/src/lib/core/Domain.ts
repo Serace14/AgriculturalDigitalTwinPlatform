@@ -254,7 +254,7 @@ type SimulationInfo = {
 	timestamp: Date;
 	startDate: Date;
 	endDate: Date;
-	numTrees: number;
+	areaHa: number;
 };
 
 type Notifications = {

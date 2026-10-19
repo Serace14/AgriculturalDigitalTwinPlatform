@@ -26,7 +26,7 @@
 	let initialParams = {
 		startDate: '2021-01-01',
 		endDate: '2021-12-31',
-		numTrees: 100
+		areaHa: 1.81
 	};
 
 	onMount(() => {
@@ -69,7 +69,7 @@
 				digitalTwinId,
 				new Date(initialParams.startDate),
 				new Date(initialParams.endDate),
-				initialParams.numTrees
+				initialParams.areaHa
 			)
 			.then((response) => {
 				simulationId = response;
@@ -164,7 +164,7 @@
 		<form>
 			<input type="date" bind:value={initialParams.startDate} />
 			<input type="date" bind:value={initialParams.endDate} />
-			<input type="number" bind:value={initialParams.numTrees} />
+			<input type="number" step="0.01" min="0.01" bind:value={initialParams.areaHa} />
 		</form>
 	</div>
 	<div
@@ -194,7 +194,7 @@
 									data: results?.map((r) => {
 										return {
 											x: r.date,
-											y: r.harvestKg
+											y: r.harvestTonsMs
 										};
 									}),
 									label: 'NDVI',
@@ -259,29 +259,34 @@
 					value: (v) => v.date
 				},
 				{
-					key: 'num_trees',
-					title: 'Árboles',
-					value: (v) => v.numTrees
+					key: 'cut_number',
+					title: 'Corte',
+					value: (v) => v.cutNumber
 				},
 				{
-					key: 'affected_trees',
-					title: 'Árboles afectados',
-					value: (v) => v.affectedTrees
+					key: 'area_ha',
+					title: 'Superficie (ha)',
+					value: (v) => v.areaHa
 				},
 				{
-					key: 'dead_trees',
-					title: 'Árboles muertos',
-					value: (v) => v.deadTrees
+					key: 'area_affected_pct',
+					title: 'Superficie afectada (%)',
+					value: (v) => v.areaAffectedPct
 				},
 				{
-					key: 'yield',
-					title: 'Yield',
-					value: (v) => v.yield
+					key: 'area_lost_ha',
+					title: 'Superficie perdida (ha)',
+					value: (v) => v.areaLostHa
+				},
+				{
+					key: 'yield_ton_ms_ha',
+					title: 'Rendimiento (t MS/ha)',
+					value: (v) => v.yieldTonMsPerHa
 				},
 				{
 					key: 'harvest',
-					title: 'Cosecha (kg)',
-					value: (v) => v.harvestKg
+					title: 'Cosecha (t MS)',
+					value: (v) => v.harvestTonsMs
 				}
 			]}
 		/>
