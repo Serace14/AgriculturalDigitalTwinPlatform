@@ -46,6 +46,7 @@ class HistoricalWeatherScheduleWorkflow:
         meteo_station_ids = await workflow.execute_activity(extract_distinct_meteo_stations_ids,
                                                             start_to_close_timeout=timedelta(seconds=10),
                                                             retry_policy=RetryPolicy(maximum_attempts=2))
+        failed = []
         # Run in batches of BATCH_SIZE to avoid overloading the server
         for meteo_station_id in meteo_station_ids:
             try:
@@ -59,10 +60,16 @@ class HistoricalWeatherScheduleWorkflow:
                 await workflow.execute_child_workflow(HistoricalWeatherWorkflow, HistoricalWeatherInputRun(meteo_station_id["meteo_station_id"],
                                                                 meteo_station_id["digital_twin_ids"], last_known_date, date_end),
                                                                 id=f"historical-weather-workflow-{meteo_station_id['meteo_station_id']}",
-                                                                run_timeout=timedelta(seconds=60 * 30),
+                                                                run_timeout=timedelta(hours=3),  # antes 30 min: cortaba cargas largas
                                                                 retry_policy=RetryPolicy(maximum_attempts=1))
             except Exception as e:
                 logging.error(f"Error in meteo_station_id: {meteo_station_id} - {e}")
+                failed.append(f"{meteo_station_id['meteo_station_id']}: {e}")
+        # Antes la ejecución terminaba siempre en Completed aunque fallaran estaciones.
+        # Ahora falla de forma visible; la siguiente ejecución retoma desde lo último cargado.
+        if failed:
+            from temporalio.exceptions import ApplicationError
+            raise ApplicationError("Estaciones con errores de carga: " + " | ".join(failed), non_retryable=True)
 
 async def main():
     client = await Client.connect("localhost:7233", namespace="open-data")

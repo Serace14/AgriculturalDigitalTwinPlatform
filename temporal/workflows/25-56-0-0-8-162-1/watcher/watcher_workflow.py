@@ -14,6 +14,9 @@ from typing import Any
 
 logging.basicConfig(level=logging.INFO)
 
+# Puerto de la instancia de Benthos que recibe el feedback de este gemelo
+FEEDBACK_PORT = "8057"
+
 @dataclass
 class Input_Evaluate:
     digital_twin_id: str
@@ -22,9 +25,17 @@ class Input_Evaluate:
 
 @activity.defn()
 async def evaluate_danger(input: Input_Evaluate) -> str:
-    # NOTE: Evaluate deeper
-    import random
-    return random.choice(["low", "high"])
+    # Reglas deterministas (antes era random.choice(["low", "high"]), con lo que la mitad de
+    # los eventos se descartaban al azar y la demo no era repetible).
+    try:
+        value = float(input.value)
+    except (TypeError, ValueError):
+        return "low"
+    if input.type == "water":
+        return "high" if value > 60 else "low"
+    if input.type == "temperature":
+        return "high" if value > 38 or value < -2 else "low"
+    return "low"
 
 
 @dataclass
@@ -48,10 +59,15 @@ async def feedback_physical_asset(input: Input_Physical_Asset) -> None:
                     "duration": 12,
                     "value": input.value
                 }
-                resp = requests.post(f"http://benthos:8056/{input.digital_twin_id}/feedback", json=body)
-                if resp.status_code != 200:
-                    # TODO: Handle error
-                    pass
+                # Cada gemelo con actuador tiene su propia instancia de Benthos (puerto distinto).
+                # Si no responde, se registra igualmente el comando y el flujo continúa.
+                port = os.environ.get("BENTHOS_FEEDBACK_PORT", FEEDBACK_PORT)
+                try:
+                    resp = requests.post(f"http://benthos:{port}/{input.digital_twin_id}/feedback", json=body, timeout=5)
+                    if resp.status_code != 200:
+                        logging.warning("Benthos feedback devolvió %s", resp.status_code)
+                except requests.RequestException as e:
+                    logging.warning("No se pudo enviar el feedback a Benthos: %s", e)
                 # Register the command in the database
                 import pandas as pd
                 db = DB_MongoClient().connect(input.digital_twin_id)
@@ -107,17 +123,28 @@ class Input_Save_Notification:
     digital_twin_id: str
     value: Any
     importance: str
+    type: str = "water"
+    source_digital_twin_id: str = ""
 
 @activity.defn()
 async def save_notification(input: Input_Save_Notification):
   import pandas as pd
   db = DB_MongoClient().connect(input.digital_twin_id)
   timestamp = pd.Timestamp.now()
-  db.Notifications.insert_one({
+  notification = {
       "timestamp": timestamp,
-      "type": "water",
+      "type": input.type,
       "value": input.value,
       "importance": input.importance,
+  }
+  db.Notifications.insert_one(dict(notification))
+  # El panel recibe los avisos escuchando common.Notifications (change stream del gateway,
+  # GET /enclosures/:id/notifications); antes nadie escribía ahí y el aviso no salía en pantalla.
+  common = DB_MongoClient().connect("common")
+  common.Notifications.insert_one({
+      **notification,
+      "digitalTwinId": input.digital_twin_id,
+      "sourceDigitalTwinId": input.source_digital_twin_id,
   })
 
 @dataclass
@@ -136,8 +163,8 @@ class WatcherWorkflow:
         if importance == "high":
             await workflow.execute_activity(feedback_physical_asset, Input_Physical_Asset(digital_twin_id, input.value, input.type), start_to_close_timeout=timedelta(seconds=15), retry_policy=RetryPolicy(maximum_attempts=2, backoff_coefficient=2))
         digital_twin_ids = await workflow.execute_activity(get_near_digital_twins, Input_Near(digital_twin_id), start_to_close_timeout=timedelta(seconds=5), retry_policy=RetryPolicy(maximum_attempts=1, backoff_coefficient=1))
-        for digital_twin_id in digital_twin_ids:
-            await workflow.execute_activity(save_notification, Input_Save_Notification(digital_twin_id, input.value, importance), start_to_close_timeout=timedelta(seconds=5), retry_policy=RetryPolicy(maximum_attempts=1, backoff_coefficient=1))
+        for near_id in digital_twin_ids:
+            await workflow.execute_activity(save_notification, Input_Save_Notification(near_id, input.value, importance, input.type, digital_twin_id), start_to_close_timeout=timedelta(seconds=5), retry_policy=RetryPolicy(maximum_attempts=1, backoff_coefficient=1))
 
 
 async def main(enclosure_id: str):

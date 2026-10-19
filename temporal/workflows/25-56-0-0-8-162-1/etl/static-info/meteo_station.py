@@ -7,6 +7,21 @@ import asyncio
 from temporalio.client import Client
 from temporalio.worker import Worker
 
+# La estación más cercana según AGROSLAB no siempre tiene datos en AEMET
+# (p. ej. 9720X Tàrrega y 9771 Lleida Observatorio devuelven 404 "No hay datos").
+# Si alguna de estas estaciones, que sabemos que tienen serie diaria completa,
+# está entre los candidatos, se usa esa; si no, la más cercana de la lista.
+PREFERRED_STATIONS = ["9771C"]  # Lleida
+
+
+def choose_station(stations: list) -> dict:
+    by_id = {s["id"]: s for s in stations}
+    for sid in PREFERRED_STATIONS:
+        if sid in by_id:
+            return by_id[sid]
+    return min(stations, key=lambda x: x["distancia (km)"])
+
+
 @dataclass
 class Input_Extract:
     enclosure_id: str
@@ -31,7 +46,7 @@ async def extract(input: Input_Extract) -> dict:
             if resp.status != 200:
                 raise Exception(f"Status code: {resp.status} - {input.enclosure_id} -> Response: {await resp.text()}")
             data = await resp.json(content_type="application/json")
-            return min(data["aemet_estaciones"], key=lambda x: x["distancia (km)"])
+            return choose_station(data["aemet_estaciones"])
     
 
 @dataclass
@@ -43,7 +58,7 @@ class MeteoStationWorkflow:
     @workflow.run
     async def run(self, input: Input_Run) -> None:
         # Extract
-        meteo_station_info = await workflow.execute_activity(extract, Input_Extract(enclosure_id=input.enclosure_id), start_to_close_timeout=timedelta(seconds=15), retry_policy=RetryPolicy(maximum_attempts=2, backoff_coefficient=2))
+        meteo_station_info = await workflow.execute_activity(extract, Input_Extract(enclosure_id=input.enclosure_id), start_to_close_timeout=timedelta(seconds=60), retry_policy=RetryPolicy(maximum_attempts=2, backoff_coefficient=2))
         return {
             "idema": meteo_station_info["id"],
             "name": meteo_station_info["nombre"],

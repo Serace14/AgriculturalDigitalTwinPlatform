@@ -1,0 +1,48 @@
+# Sensor de agua/lluvia (mm) del gemelo de alfalfa 25-56-0-0-8-162-1.
+# Escucha UN topic concreto del broker público (no "#"), así solo entran los mensajes que
+# publiquemos nosotros y no el ruido de test.mosquitto.org.
+#   mosquitto_pub -h test.mosquitto.org -t gedefec/alfalfa/25-56-0-0-8-162-1/water -m 75
+http:
+  address: ":4198"
+
+input:
+  label: "mqtt_alfalfa_water"
+  mqtt:
+    urls: ["test.mosquitto.org:1883"]
+    topics: ["gedefec/alfalfa/25-56-0-0-8-162-1/water"]
+    client_id: ""
+    connect_timeout: 30s
+    auto_replay_nacks: false
+    qos: 0
+
+pipeline:
+  threads: 2
+  processors:
+    # Solo valores numéricos
+    - label: "filter"
+      bloblang: |
+        root = if this.number().catch(null) != null { this } else { deleted() }
+
+output:
+  label: "mongodb_output"
+  mongodb:
+    url: "${MONGO_URI}"
+    database: "25-56-0-0-8-162-1"
+    collection: "Sensors"
+    operation: insert-one
+    write_concern:
+      w: majority
+      j: false
+    document_map: |
+      root.type = "water"
+      root.unit = "mm"
+      root.value = this.number()
+      root.timestamp = now()
+      root.sensorId = "alfalfa-water-1"
+      root.sensorName = "Pluviómetro parcela"
+      root.digitalTwinId = "25-56-0-0-8-162-1"
+      # Por encima de 60 mm se considera amenaza alta (lo recoge el watcher)
+      root.threat = if this.number() > 60 { "high" } else { "low" }
+    max_in_flight: 2
+    batching:
+      count: 1

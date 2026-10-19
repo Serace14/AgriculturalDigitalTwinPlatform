@@ -1,0 +1,507 @@
+import asyncio
+import math
+import random
+from temporalio import workflow, activity
+from temporalio.worker import Worker
+from temporalio.client import Client
+from temporalio.common import RetryPolicy
+from datetime import datetime, timedelta
+from dataclasses import dataclass
+# import simpy
+
+# --- Parámetros del modelo de alfalfa ---
+# Calibrados con cortes reales (Excel "Kg y cortes" + "parcelario": 708 cortes de
+# 59 plantaciones, 2016-2024; solo plantaciones con superficie sin ambigüedad).
+# Temperatura base para el cálculo de grados-día de crecimiento (GDD) de la alfalfa.
+GDD_BASE_TEMP_C = 5
+# GDD acumulados entre corte y corte (base 5°C). AJUSTADO con 300 temporadas
+# simuladas para que, con el clima sintético de esta simulación, salgan 5 cortes
+# al año, un ciclo mediano de ~37 días y el 1er corte hacia el día 127 (real: ciclo
+# mediano 39 días con rango 34-45, 5 cortes/año de mediana, 1er corte el día 127).
+# Si cambias el generador de clima sintético, hay que recalibrar este valor.
+GDD_PER_CUT = 580
+# Temporada de crecimiento: los cortes reales van de abril a octubre (el primer
+# corte cae de mediana hacia el 7 de mayo). Fuera de ella la alfalfa está en reposo.
+SEASON_START_MONTH = 4
+SEASON_END_MONTH = 10
+# Rendimiento por corte (t materia seca / ha) según el nº de corte de la temporada:
+# {nº corte: (mediana, sigma del logaritmo)} - distribución lognormal ajustada a los
+# datos reales. El corte 6 tiene pocas muestras (n=23).
+CUT_YIELD_T_MS_HA = {
+    1: (1.95, 0.58),
+    2: (2.22, 0.62),
+    3: (2.51, 0.54),
+    4: (1.71, 0.61),
+    5: (1.21, 0.70),
+    6: (0.65, 0.82),
+}
+# Tope de seguridad para valores extremos de la lognormal (el p95 real es 4.4 t MS/ha).
+MAX_YIELD_T_MS_HA = 6.0
+# Años a partir de los cuales se considera que el alfalfar debería resembrarse
+# porque su rendimiento decae de forma notable.
+MAX_STAND_AGE_YEARS = 5
+
+@dataclass
+class Time:
+    day: int
+    month: int
+    year: int
+    hour: int
+    hour_duration: int
+    
+async def advance_time(time: dict):
+    time_dt = datetime(time["year"], time["month"], time["day"], time["hour"])
+    new_time = time_dt + timedelta(hours=1)
+    time["hour"] = new_time.hour
+    time["day"] = new_time.day
+    time["month"] = new_time.month
+    time["year"] = new_time.year
+    # await 1 second
+    await asyncio.sleep(time["hour_duration"])
+
+@dataclass
+class Weather:
+    temperature: float
+    humidity: float
+    wind_speed: float
+    wind_direction: str
+    precipitation: float
+
+def set_rain(weather: dict):
+    rain_probability = 0.1
+    if weather["sky_state"] == "C":
+        rain_probability += random.uniform(0.1, 0.3)
+    rain_quantity = 0
+    if weather["humidity"] > 80:
+        rain_probability += random.uniform(0, 0.2)
+    if weather["wind_speed"] > 30:
+        rain_probability -= random.uniform(0, 0.2)
+    # let the odds decide
+    if random.random() < rain_probability:
+        rain_quantity = random.uniform(0, 30)
+    # La precipitación es la de ESTA hora: si no llueve vale 0 (antes conservaba el
+    # valor de la última lluvia y se acumulaba como si lloviera todas las horas).
+    weather["precipitation"] = rain_quantity
+        
+def set_sky_state(weather: dict):
+    states = ["S", "C", "N", "P"]
+    weather["sky_state"] = random.choice(states)
+
+def set_wind(weather: dict):
+    weather["wind_speed"] = random.uniform(0, 50)
+    weather["wind_direction"] = random.choice(["N", "S", "E", "W"])
+
+def set_temperature(weather: dict, time: dict):
+    # Depending on hour or month, temperature will vary
+    if time["month"] >= 1 and time["month"] <= 3:
+        if time["hour"] >= 0 and time["hour"] <= 6:
+            weather["temperature"] = random.uniform(0, 10)
+        elif time["hour"] >= 7 and time["hour"] <= 12:
+            weather["temperature"] = random.uniform(10, 20)
+        elif time["hour"] >= 13 and time["hour"] <= 18:
+            weather["temperature"] = random.uniform(20, 30)
+        elif time["hour"] >= 19 and time["hour"] <= 23:
+            weather["temperature"] = random.uniform(10, 20)
+    elif time["month"] >= 4 and time["month"] <= 8:
+        if time["hour"] >= 0 and time["hour"] <= 6:
+            weather["temperature"] = random.uniform(0, 10)
+        elif time["hour"] >= 7 and time["hour"] <= 12:
+            weather["temperature"] = random.uniform(10, 30)
+        elif time["hour"] >= 13 and time["hour"] <= 18:
+            weather["temperature"] = random.uniform(30, 40)
+        elif time["hour"] >= 19 and time["hour"] <= 23:
+            weather["temperature"] = random.uniform(20, 30)
+    elif time["month"] >= 9 and time["month"] <= 12:
+        if time["hour"] >= 0 and time["hour"] <= 6:
+            weather["temperature"] = random.uniform(0, 10)
+        elif time["hour"] >= 7 and time["hour"] <= 12:
+            weather["temperature"] = random.uniform(10, 20)
+        elif time["hour"] >= 13 and time["hour"] <= 18:
+            weather["temperature"] = random.uniform(20, 30)
+        elif time["hour"] >= 19 and time["hour"] <= 23:
+            weather["temperature"] = random.uniform(10, 20)
+
+def set_humidity(weather, time: Time):
+    # Depending on hour or month, humidity will vary
+    if time["month"] >= 1 and time["month"] <= 3:
+        if time["hour"] >= 0 and time["hour"] <= 6:
+            weather["humidity"] = random.uniform(0, 20)
+        elif time["hour"] >= 7 and time["hour"] <= 12:
+            weather["humidity"] = random.uniform(20, 40)
+        elif time["hour"] >= 13 and time["hour"] <= 18:
+            weather["humidity"] = random.uniform(40, 60)
+        elif time["hour"] >= 19 and time["hour"] <= 23:
+            weather["humidity"] = random.uniform(20, 40)
+    elif time["month"] >= 4 and time["month"] <= 8:
+        if time["hour"] >= 0 and time["hour"] <= 6:
+            weather["humidity"] = random.uniform(0, 20)
+        elif time["hour"] >= 7 and time["hour"] <= 12:
+            weather["humidity"] = random.uniform(20, 60)
+        elif time["hour"] >= 13 and time["hour"] <= 18:
+            weather["humidity"] = random.uniform(60, 80)
+        elif time["hour"] >= 19 and time["hour"] <= 23:
+            weather["humidity"] = random.uniform(40, 60)
+    elif time["month"] >= 9 and time["month"] <= 12:
+        if time["hour"] >= 0 and time["hour"] <= 6:
+            weather["humidity"] = random.uniform(0, 20)
+        elif time["hour"] >= 7 and time["hour"] <= 12:
+            weather["humidity"] = random.uniform(20, 40)
+        elif time["hour"] >= 13 and time["hour"] <= 18:
+            weather["humidity"] = random.uniform(40, 60)
+        elif time["hour"] >= 19 and time["hour"] <= 23:
+            weather["humidity"] = random.uniform(20, 40)
+
+
+@dataclass
+class DigitalTwin:
+    id: str
+    name: str
+    area_ha: float          # superficie total de la parcela de alfalfa
+    area_lost_ha: float     # superficie perdida de forma permanente (plaga/enfermedad persistente)
+    area_affected_pct: float  # % de la superficie con un brote activo (recuperable con tratamiento)
+    stand_age_years: float  # edad del alfalfar desde la última siembra/resiembra
+    start_date: str
+    end_date: str
+    time_elapsed: int
+    gdd_accumulated: float  # grados-día de crecimiento acumulados desde el último corte
+    prec_accumulated: int   # precipitación acumulada desde el último corte (proxy de estrés hídrico)
+    cut_number: int         # número de corte dentro de la simulación
+    crop_stage: str
+    # soil: Soil
+    harvest: dict
+
+def update(digital_twin: dict, time: dict, weather: dict):
+    digital_twin["time_elapsed"] += 1
+
+    # Reposo invernal: fuera de la temporada no hay rebrote ni cortes. El contador
+    # de cortes (cut_number) es "corte de la temporada" y se reinicia cada año.
+    if not (SEASON_START_MONTH <= time["month"] <= SEASON_END_MONTH):
+        digital_twin["crop_stage"] = "Dormant"
+        digital_twin["cut_number"] = 0
+        digital_twin["gdd_accumulated"] = 0
+        digital_twin["prec_accumulated"] = 0
+        return
+    if digital_twin["crop_stage"] == "Dormant":
+        digital_twin["crop_stage"] = "Growing"
+
+    # Grados-día de crecimiento: aproximación horaria de un cálculo que
+    # normalmente se hace a nivel diario ((Tmax+Tmin)/2 - Tbase).
+    gdd_hour = max(0, weather["temperature"] - GDD_BASE_TEMP_C) / 24
+    digital_twin["gdd_accumulated"] += gdd_hour
+
+    if weather["precipitation"] > 0:
+        digital_twin["prec_accumulated"] += weather["precipitation"]
+
+    # La alfalfa no "madura una vez al año": rebrota y se corta varias veces
+    # por temporada en cuanto acumula suficiente calor útil.
+    if digital_twin["gdd_accumulated"] >= GDD_PER_CUT:
+        digital_twin["crop_stage"] = "ReadyToCut"
+
+    if digital_twin["crop_stage"] == "ReadyToCut":
+        effective_area = max(0.0, digital_twin["area_ha"] - digital_twin["area_lost_ha"])
+        healthy_fraction = max(0.0, 1 - digital_twin["area_affected_pct"] / 100)
+        # El rendimiento por corte decae con la edad del alfalfar.
+        stand_age_factor = max(0.5, 1 - 0.05 * digital_twin["stand_age_years"])
+        # Proxy simple de estrés hídrico: poca lluvia acumulada desde el corte anterior penaliza el rendimiento.
+        water_stress_factor = 1.0 if digital_twin["prec_accumulated"] > 15 else 0.85
+
+        digital_twin["cut_number"] += 1
+        # Rendimiento base según el nº de corte de la temporada (datos reales).
+        median, sigma = CUT_YIELD_T_MS_HA[min(digital_twin["cut_number"], max(CUT_YIELD_T_MS_HA))]
+        base_yield_t_ms_ha = min(random.lognormvariate(math.log(median), sigma), MAX_YIELD_T_MS_HA)
+        yield_t_ms_ha = base_yield_t_ms_ha * stand_age_factor * water_stress_factor
+
+        digital_twin["harvest"] = {
+            "date": f"{time['year']}-{time['month']}-{time['day']} {time['hour']}:00:00",
+            "cutNumber": digital_twin["cut_number"],
+            "areaHa": digital_twin["area_ha"],
+            "areaLostHa": round(digital_twin["area_lost_ha"], 3),
+            "areaAffectedPct": round(digital_twin["area_affected_pct"], 2),
+            "yieldTonMsPerHa": round(yield_t_ms_ha, 3),
+            "harvestTonsMs": round(effective_area * healthy_fraction * yield_t_ms_ha, 3)
+        }
+
+        # Solo se reinicia el ciclo de rebrote, no todo el alfalfar
+        # (area_lost_ha y stand_age_years son acumulativos entre cortes).
+        digital_twin["gdd_accumulated"] = 0
+        digital_twin["prec_accumulated"] = 0
+        digital_twin["crop_stage"] = "Growing"
+        # Envejecimiento aproximado del alfalfar (1 año ≈ 8760 horas simuladas).
+        digital_twin["stand_age_years"] = round(digital_twin["time_elapsed"] / 8760, 2)
+        if digital_twin["stand_age_years"] >= MAX_STAND_AGE_YEARS:
+            # Resiembra: a partir de aquí se considera un alfalfar nuevo.
+            digital_twin["stand_age_years"] = 0
+
+@dataclass
+class Plague:
+    name: str
+    type: str
+    treatment: str
+    treatment_cost: float
+    duration: int
+
+def treat(plague: dict, digital_twin: dict):
+    treatment_probability = 0.1
+    if plague["duration"] > 7:
+        # Una plaga persistente deja daño permanente en parte de la superficie afectada
+        area_permanently_lost = digital_twin["area_ha"] * (digital_twin["area_affected_pct"] / 100) * 0.1
+        digital_twin["area_lost_ha"] = round(digital_twin["area_lost_ha"] + area_permanently_lost, 4)
+        plague["duration"] = 0
+    if digital_twin["area_affected_pct"] > 0:
+        plague["duration"] += 1
+        # More hours pass, more probability of treatment
+        treatment_probability += 0.075 * plague["duration"]
+        # Let the odds decide
+        if random.random() < treatment_probability:
+            digital_twin["area_affected_pct"] = max(0, digital_twin["area_affected_pct"] - random.uniform(2, 8))
+            plague["duration"] = 0
+
+def affect(weather: dict, digital_twin: dict):
+    affect_probability = 0.1
+    if weather["temperature"] > 30:
+        affect_probability += random.uniform(0.2, 0.4)
+    if weather["humidity"] > 80:
+        affect_probability += random.uniform(0.4, 0.6)
+    if weather["temperature"] < 10:
+        affect_probability -= random.uniform(0.2, 0.4)
+    # let the odds decide
+    if random.random() < affect_probability:
+        digital_twin["area_affected_pct"] = min(100, digital_twin["area_affected_pct"] + random.uniform(1, 5))
+
+def spread(weather: dict, digital_twin: dict):
+    spread_probability = 0
+    if weather["temperature"] > 30:
+        spread_probability += random.uniform(0.2, 0.4)
+    if weather["humidity"] > 70:
+        spread_probability += random.uniform(0.5, 0.8)
+    if weather["wind_speed"] > 30:
+        spread_probability += random.uniform(0.6, 0.8)
+    # let the odds decide
+    if random.random() < spread_probability:
+        digital_twin["area_affected_pct"] = min(100, digital_twin["area_affected_pct"] + random.uniform(1, 5))
+
+@dataclass
+class InputNextStage:
+    time: dict
+    digital_twin: dict
+    plagues: list[dict]
+    weather: dict
+    simulation_id: str
+    digital_twin_id: str
+
+@activity.defn()
+async def run_simulation(input: InputNextStage):
+    import pandas as pd
+    time = input.time
+    weather = input.weather
+    digital_twin = input.digital_twin
+    plagues = input.plagues
+    if time["hour_duration"] == math.inf:
+        return digital_twin, weather, time, plagues, False
+    await advance_time(time)
+    set_temperature(weather, time)
+    set_humidity(weather, time)
+    set_wind(weather)
+    set_sky_state(weather)
+    set_rain(weather)
+    # Create plague randomly
+    random_plague = random.random()
+    if random_plague < 0.2:
+        plague = Plague("Plague", "Plague Type 1", "Treatment 1", 0, 0).__dict__
+        affect(weather, digital_twin)
+        spread(weather, digital_twin)
+        plagues.append(plague)
+    # Treat input.plagues
+    for plague in plagues:
+        treat(plague, digital_twin)
+        if plague["duration"] == 0:
+            plagues.remove(plague)
+    # Update digital twin
+    update(digital_twin, time, weather)
+    # Check if there has been a new harvest (corte)
+    if digital_twin["harvest"] is not None:
+        await load_result(InputLoadResult(digital_twin["harvest"], input.simulation_id, input.digital_twin_id))
+        digital_twin["harvest"] = None
+    # Check if simulation has ended
+    # OJO: no usar pd.to_datetime("d/m/yyyy"): pandas lo interpreta mes/día cuando ambos
+    # son <= 12 (6/4/2022 -> 4 de junio) y la simulación terminaba antes de tiempo.
+    if datetime(time["year"], time["month"], time["day"]) > datetime.strptime(digital_twin["end_date"], "%Y-%m-%d"):
+        return digital_twin, weather, time, plagues, True
+    await load_status(InputLoadStatus(digital_twin, time, weather, [plague for plague in plagues], input.simulation_id, input.digital_twin_id))
+    return digital_twin, weather, time, plagues, False
+
+@dataclass
+class InputLoadStatus:
+    digital_twin: dict
+    time: dict
+    weather: dict
+    plagues: list[dict]
+    simulation_id: str
+    digital_twin_id: str
+
+async def load_status(input: InputLoadStatus):
+    from pymongo import MongoClient
+    import os
+    client = MongoClient(os.getenv("MONGO_URI"))
+    database = client[input.digital_twin_id]
+    database["Simulations"].insert_one(
+        {
+            "simulationId": input.simulation_id,
+            "time": input.time,
+            "weather": input.weather,
+            "digitalTwin": input.digital_twin,
+            "plagues": input.plagues
+        },
+    )
+
+@dataclass
+class InputLoadResult:
+    harvest: dict
+    simulation_id: str
+    digital_twin_id: str
+
+async def load_result(input: InputLoadResult):
+    from pymongo import MongoClient
+    import os
+    client = MongoClient(os.getenv("MONGO_URI"))
+    database = client[input.digital_twin_id]
+    database["SimulationResults"].update_one(
+        {
+            "simulationId": input.simulation_id,
+        },
+        {
+            "$push": {
+                "results": input.harvest
+            }
+        },
+        upsert=True
+    )
+
+@dataclass
+class InputCreateSimulation:
+    digital_twin_id: str
+    simulation_id: str
+    start_date: str
+    end_date: str
+    area_ha: float
+
+@activity.defn()
+async def create_simulation(input: InputCreateSimulation):
+    from pymongo import MongoClient
+    import os
+    import pandas as pd
+    client = MongoClient(os.getenv("MONGO_URI"))
+    database = client[input.digital_twin_id]
+    database["SimulationResults"].insert_one(
+        {
+            "simulationId": input.simulation_id,
+            "timestamp": pd.Timestamp.now(),
+            "startDate": pd.to_datetime(input.start_date),
+            "endDate": pd.to_datetime(input.end_date),
+            "areaHa": input.area_ha,
+            "terminated": False,
+            "results": []
+        },
+    )
+
+@dataclass
+class InputEndSimulation:
+    digital_twin_id: str
+    simulation_id: str
+
+@activity.defn()
+async def end_simulation(input: InputEndSimulation):
+    # NOTA: en el original esta función no recibía el parámetro `input`
+    # pero lo usaba en el cuerpo (NameError garantizado). Se corrige aquí
+    # de paso, no es un cambio relacionado con la adaptación a alfalfa.
+    from pymongo import MongoClient
+    import os
+    client = MongoClient(os.getenv("MONGO_URI"))
+    database = client[input.digital_twin_id]
+    database["SimulationResults"].update_one(
+        {
+            "simulationId": input.simulation_id,
+        },
+        {
+            "$set": {
+                "terminated": True
+            }
+        }
+    )
+
+
+@dataclass
+class Input_Run:
+    digital_twin_id: str
+    area_ha: float
+    start_date: str
+    end_date: str
+
+@workflow.defn
+class HarvestAiSimulationWorkflow:
+
+    time: Time = None
+    digital_twin: DigitalTwin = None
+    weather: Weather = None
+    plagues: list[Plague] = []
+
+    hour_duration = 1
+
+    @workflow.signal
+    async def resume(self) -> None:
+        self.hour_duration = 1
+
+    # @workflow.signal
+    # async def pause():
+        # time.hour_duration = math.inf
+
+    @workflow.signal
+    async def speed(self, speed: float) -> None:
+        if (speed == 0):
+            self.hour_duration = math.inf
+            return
+        self.hour_duration = 1/speed
+
+    @workflow.signal
+    async def update(self) -> None:
+        pass
+
+    @workflow.run
+    async def run(self, input: Input_Run) -> None:
+        workflow_id = workflow.info().workflow_id
+        # Split this: simulation_<simulation-id> and get <simulation-id>
+        simulation_id = workflow_id.split("_")[1]
+        await workflow.execute_activity(create_simulation, InputCreateSimulation(input.digital_twin_id, simulation_id, input.start_date, input.end_date, input.area_ha),
+                                        start_to_close_timeout=timedelta(seconds=10),
+                                        retry_policy=RetryPolicy(maximum_attempts=2, backoff_coefficient=1))
+        self.time = Time(day=int(input.start_date.split("-")[2]), month=int(input.start_date.split("-")[1]), year=int(input.start_date.split("-")[0]), hour=0, hour_duration=1)
+        self.digital_twin = DigitalTwin(input.digital_twin_id, "Digital Twin Alfalfa", input.area_ha, 0, 0, 0, input.start_date, input.end_date, 0, 0, 0, 0, "Growing", None)
+        self.weather = Weather(0, 0, 0, "N", 0)
+        self.plagues = []
+        while True:
+            self.digital_twin, self.weather, self.time, self.plagues, over = await workflow.execute_activity(run_simulation, InputNextStage(self.time, self.digital_twin, self.plagues, self.weather, simulation_id, input.digital_twin_id),
+                                        start_to_close_timeout=timedelta(hours=3),
+                                        retry_policy=RetryPolicy(maximum_attempts=1, backoff_coefficient=1))
+            self.time["hour_duration"] = self.hour_duration
+            if over:
+                break
+        await workflow.execute_activity(end_simulation, InputEndSimulation(input.digital_twin_id, simulation_id),
+                                        start_to_close_timeout=timedelta(seconds=10),
+                                        retry_policy=RetryPolicy(maximum_attempts=2, backoff_coefficient=1))
+
+# This is the main function that will be executed by the Temporal worker
+async def main():
+    client = await Client.connect("localhost:7233", namespace="25-153-0-0-30-3-1")
+    async with Worker(client, task_queue="harvest-simulation-task-queue", workflows=[HarvestAiSimulationWorkflow], activities=[run_simulation, create_simulation]) as worker:
+        await client.execute_workflow(HarvestAiSimulationWorkflow.run,
+                                      # NOTA: el original pasaba `enclosure_id=` pero el dataclass Input_Run
+                                      # espera `digital_twin_id` (otro bug preexistente, corregido de paso).
+                                      Input_Run(digital_twin_id="25-153-0-0-30-3-1", area_ha=1.81, start_date="2022-01-01", end_date="2022-12-31"),
+                                      id=f"harvest-simulation-{random.randint(0, 1000)}",
+                                      task_queue="harvest-simulation-task-queue",
+                                      retry_policy=RetryPolicy(maximum_attempts=1))
+    print("Starting simulation")
+    # await run_simulation(Initial_Params(100, "1/1/2022", 500))
+
+if __name__ == "__main__":
+    asyncio.run(main())

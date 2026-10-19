@@ -1,0 +1,30 @@
+# Canal de vuelta hacia el actuador de riego del gemelo 25-56-0-0-8-162-1.
+# El watcher hace POST a http://benthos:8057/25-56-0-0-8-162-1/feedback (el 8056 es el del pistacho).
+http:
+  address: ":4199"
+
+input:
+  label: "feedback_alfalfa"
+  http_server:
+    address: ":8057"
+    path: /25-56-0-0-8-162-1/feedback
+    allowed_verbs:
+      - POST
+    timeout: 5s
+    rate_limit: ""
+
+pipeline:
+  threads: 2
+  processors:
+    - switch:
+        - check: this.type == "water"
+          processors:
+            - log:
+                level: INFO
+                message: 'ACTUADOR RIEGO -> value: ${!json("value")}, type: ${!json("type")}, action: ${!json("action")}, duration: ${!json("duration")}h'
+
+output:
+  sync_response: {}
+
+  processors:
+    - bloblang: 'root = "value %v of type %s sent correctly".format(this.value, this.type)'

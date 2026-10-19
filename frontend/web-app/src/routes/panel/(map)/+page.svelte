@@ -222,7 +222,7 @@
 						slope: enclosure.properties.slope,
 						irrigationCoef: enclosure.properties.irrigationCoef,
 						usedArea: enclosure.properties.areaSIGPAC,
-						cropName: enclosure.properties.cropName,
+						cropName: enclosure.properties.crop?.name ?? enclosure.properties.cropName,
 						ndvi: enclosure.properties.ndvi
 					}))}
 					columns={[

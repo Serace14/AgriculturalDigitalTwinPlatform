@@ -10,6 +10,7 @@ from historical_weather_dto import historical_weather_dto, check_if_number, chec
 from temporalio.client import Client
 from temporalio.worker import Worker
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
@@ -44,7 +45,14 @@ async def extract(input: Input_Extract) -> list[dict]:
     # async with aiohttp.ClientSession() as session:
         async with session.post(AGROSLAB_API_URL, json=body, headers=headers, ssl=False) as resp:
             if resp.status != 200:
-                raise Exception(f"Status code: {resp.status} - {input.meteo_station_id} -> Response: {await resp.text()}")
+                text = await resp.text()
+                # AEMET responde 404 ("No hay datos que satisfagan esos criterios") cuando la
+                # estación no tiene observaciones en ese tramo (estación parada, hueco...) y
+                # AGROSLAB lo convierte en un 500. Eso NO es un fallo: es un tramo vacío.
+                # Antes se reintentaba y abortaba toda la carga.
+                if "No hay datos que satisfagan" in text:
+                    return []
+                raise Exception(f"Status code: {resp.status} - {input.meteo_station_id} -> Response: {text}")
             data = await resp.json(content_type="text/plain") # content_type is needed because the response is not a json (it's a text/plain)
             return data
         
@@ -96,14 +104,21 @@ class Input_Load:
 
 @activity.defn()
 async def load(input: Input_Load):
+    # Un tramo sin datos (hueco de la estación) no es un error: no hay nada que cargar.
+    # Antes insert_many([]) lanzaba una excepción.
+    if not input.weather_data_list:
+        return
     # Connect to MongoDB
     db = DB_MongoClient().connect(input.digital_twin_id)
     # Convert input.weather_data_list.date to datetime
     for weather_data in input.weather_data_list:
         weather_data["date"] = pd.to_datetime(weather_data["date"], format="%Y-%m-%d")
-    # Because update_one is really slow, we use insert_many
-    if input.weather_data_list is not None:
-        db.Weather.insert_many(input.weather_data_list)
+    # Idempotente: la carga siguiente arranca en la última fecha ya cargada, así que ese
+    # día llegaba duplicado. Borramos antes el rango que vamos a insertar.
+    # Because update_one is really slow, we use delete_many + insert_many
+    dates = [w["date"] for w in input.weather_data_list]
+    db.Weather.delete_many({"date": {"$gte": min(dates), "$lte": max(dates)}})
+    db.Weather.insert_many(input.weather_data_list)
 
 @dataclass
 class Input_Create_Sequences:
@@ -146,14 +161,27 @@ class HistoricalWeatherWorkflow:
             for sequence in sequences[i:i+BATCH_SIZE]:
                 tasks.append(workflow.execute_activity(extract, Input_Extract(input.meteo_station_id, sequence[0], sequence[1]),
                                                         start_to_close_timeout=timedelta(seconds=60 * 5),
-                                                        retry_policy=RetryPolicy(maximum_attempts=3, backoff_coefficient=2)))
+                                                        # La API (AGROSLAB -> AEMET) falla a ratos con 500: reintentos
+                                                        # espaciados (15 s, 30 s, 60 s, 2 min, 3 min) en vez de 3 seguidos.
+                                                        retry_policy=RetryPolicy(initial_interval=timedelta(seconds=15),
+                                                                                 backoff_coefficient=2,
+                                                                                 maximum_interval=timedelta(minutes=3),
+                                                                                 maximum_attempts=6)))
             res = await asyncio.gather(*tasks, return_exceptions=True)
             # Sleep to avoid overloading the server
             await asyncio.sleep(3)
             for r in res:
                 if isinstance(r, Exception):
                     logging.error(f"Error in meteo_station_id: {input.meteo_station_id} - {r}")
-                    continue
+                    # PARAMOS en el primer tramo fallido. Antes se saltaba y se cargaban los
+                    # meses siguientes: la próxima ejecución arranca en la ÚLTIMA fecha cargada,
+                    # así que el hueco no se recuperaba nunca. Parando, la siguiente ejecución
+                    # continúa exactamente donde se quedó.
+                    raise ApplicationError(
+                        f"Fallo al extraer la estación {input.meteo_station_id} "
+                        f"({sequences[i][0]} a {sequences[i][1]}): {r}", non_retryable=True)
+                if not r:
+                    continue  # tramo sin datos: nada que transformar ni cargar
                 data = await workflow.execute_activity(transform, Input_Transform(r),
                                                         start_to_close_timeout=timedelta(seconds=10),
                                                         retry_policy=RetryPolicy(maximum_attempts=1))

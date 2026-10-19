@@ -1,0 +1,65 @@
+{
+ "crs": {
+  "type": "EPSG",
+  "properties": {
+   "code": "4258"
+  }
+ },
+ "geometry": {
+  "type": "Polygon",
+  "coordinates": [
+   [
+    [
+     0.87729827,
+     41.74318963
+    ],
+    [
+     0.87680735,
+     41.74320183
+    ],
+    [
+     0.87675267,
+     41.74698142
+    ],
+    [
+     0.87688907,
+     41.7469771
+    ],
+    [
+     0.87729992,
+     41.74696164
+    ],
+    [
+     0.87729827,
+     41.74318963
+    ]
+   ]
+  ]
+ },
+ "properties": {
+  "location": {
+   "province": "LLEIDA",
+   "city": "BELLCAIRE D'URGELL",
+   "municipality": "BELLCAIRE D'URGELL",
+   "geographicSpot": "BELLCAIRE D'URGELL",
+   "ccaa": "CATALUÑA"
+  },
+  "crop": {
+   "id": "",
+   "name": "ALFALFA",
+   "varietyId": "",
+   "variety": ""
+  },
+  "slope": 12,
+  "area": 1.8104,
+  "areaSIGPAC": 1.8104,
+  "parcelUse": "TA",
+  "irrigationCoef": 100,
+  "admisibility": 0,
+  "rainfedOrIrrigated": "Irrigated",
+  "notes": "Nombre de referencia en finca: BALAGUERÓ - LLARGA"
+ },
+ "type": "Feature",
+ "id": "25-56-0-0-8-162-1",
+ "year": 2024
+}

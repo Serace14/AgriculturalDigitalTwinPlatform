@@ -112,7 +112,12 @@ def predict_disease_risk(df_raw: pd.DataFrame) -> pd.DataFrame:
 # harvest_ai_prediction.py del resto de la plataforma.
 # ---------------------------------------------------------------------------
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from temporalio import activity
+
+# El notebook entrena con y_target = Alerta_enfermedad desplazada HORIZON_DIAS
+# observaciones al futuro: la fila de la fecha D predice el riesgo en D + 3.
+HORIZON_DIAS = 3
 
 
 @dataclass
@@ -123,19 +128,47 @@ class InputPredictDiseaseRisk:
     # {"date": "2026-05-01", "plot_id": "25-56-0-0-8-162-1",
     #  "average_temp": 18.2, "maximum_temp": 24.1, ...}
     raw_weather_rows: list
+    # Se calcula sobre todas las filas (hacen falta ~3 semanas previas para los
+    # lags y ventanas), pero solo se guardan las ÚLTIMAS persist_last_days fechas.
+    persist_last_days: int = 1
 
 
 @activity.defn()
 async def predict_disease_risk_activity(input: "InputPredictDiseaseRisk") -> list:
     df_raw = pd.DataFrame(input.raw_weather_rows)
     result = predict_disease_risk(df_raw)
+    _, umbral, _ = _load_model()
 
-    # Persistimos en Mongo, igual que el resto de resultados de la plataforma.
+    result = result.sort_values(DATE_COL).tail(max(1, input.persist_last_days))
+    now = datetime.utcnow()
+    records = []
+    for r in result.itertuples(index=False):
+        date = pd.Timestamp(getattr(r, DATE_COL)).to_pydatetime()
+        records.append({
+            "plot_id": str(getattr(r, PLOT_ID_COL)),
+            "date": date,                                   # fecha de las variables meteo
+            "targetDate": date + timedelta(days=HORIZON_DIAS),  # fecha para la que se estima el riesgo
+            "horizonDays": HORIZON_DIAS,
+            "probAlto": float(r.probAlto),
+            "riesgo": str(r.riesgo),
+            "threshold": float(umbral),
+            # Sin histórico de alertas el modelo pierde casi toda su capacidad
+            # predictiva (ver README / análisis): se marca para que la interfaz
+            # pueda avisar de que el resultado es orientativo.
+            "usedAlertHistory": False,
+            "model": "modelo_cereales (cebada/maíz) aplicado a alfalfa",
+            "computedAt": now,
+        })
+
+    # Persistimos en Mongo con upsert por (plot_id, date): relanzar el cálculo
+    # para la misma fecha sobrescribe en vez de duplicar.
     from pymongo import MongoClient
     import os
     client = MongoClient(os.getenv("MONGO_URI"))
     database = client[input.digital_twin_id]
-    records = result.to_dict(orient="records")
-    if records:
-        database["DiseaseRisk"].insert_many(records)
-    return records
+    for x in records:   # pocas filas (days_to_predict): un update_one por fila es suficiente
+        database["DiseaseRisk"].update_one({"plot_id": x["plot_id"], "date": x["date"]}, {"$set": x}, upsert=True)
+    # Devolvemos fechas como texto: es lo que viaja bien por Temporal.
+    return [{**x, "date": x["date"].strftime("%Y-%m-%d"),
+             "targetDate": x["targetDate"].strftime("%Y-%m-%d"),
+             "computedAt": x["computedAt"].isoformat()} for x in records]

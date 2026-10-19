@@ -1,0 +1,89 @@
+{
+ "crs": {
+  "type": "EPSG",
+  "properties": {
+   "code": "4258"
+  }
+ },
+ "geometry": {
+  "type": "Polygon",
+  "coordinates": [
+   [
+    [
+     0.88608926,
+     41.73701367
+    ],
+    [
+     0.88569729,
+     41.73964056
+    ],
+    [
+     0.88570114,
+     41.73964098
+    ],
+    [
+     0.88656501,
+     41.73972875
+    ],
+    [
+     0.88658303,
+     41.73938189
+    ],
+    [
+     0.88663509,
+     41.73910008
+    ],
+    [
+     0.88675319,
+     41.73884183
+    ],
+    [
+     0.88700843,
+     41.73852331
+    ],
+    [
+     0.88749678,
+     41.73796874
+    ],
+    [
+     0.88764272,
+     41.73779029
+    ],
+    [
+     0.88764632,
+     41.73717898
+    ],
+    [
+     0.88608926,
+     41.73701367
+    ]
+   ]
+  ]
+ },
+ "properties": {
+  "location": {
+   "province": "LLEIDA",
+   "city": "LINYOLA",
+   "municipality": "LINYOLA",
+   "geographicSpot": "LINYOLA",
+   "ccaa": "CATALUÑA"
+  },
+  "crop": {
+   "id": "",
+   "name": "ALFALFA",
+   "varietyId": "",
+   "variety": ""
+  },
+  "slope": 21,
+  "area": 2.9777,
+  "areaSIGPAC": 2.9777,
+  "parcelUse": "TA",
+  "irrigationCoef": 100,
+  "admisibility": 0,
+  "rainfedOrIrrigated": "Irrigated",
+  "notes": "Nombre de referencia en finca: ROSA LLUCH - LINYOLA"
+ },
+ "type": "Feature",
+ "id": "25-153-0-0-30-3-1",
+ "year": 2024
+}

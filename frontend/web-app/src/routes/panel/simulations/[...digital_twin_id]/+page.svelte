@@ -5,7 +5,7 @@
 	import { digitalTwinsService } from '$lib/config/config';
 	import { userEnclosures } from '$lib/config/stores/enclosures';
 	import type { DigitalTwin, SimulationInfo } from '$lib/core/Domain';
-	import simulation_example_img from '$lib/assets/simulation-example.jpg';
+	import SimulationParcel from '$lib/components/panel/SimulationParcel.svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { API_WS_URL } from '../../../../lib/config/config';
@@ -128,6 +128,24 @@
 	};
 
 	$: digitalTwin = $userEnclosures.find((e) => e.id === digitalTwinId);
+
+	// La superficie de la simulación parte de la de la parcela (antes era siempre 1,81 ha).
+	// Solo se rellena una vez, para no pisar lo que el usuario escriba después.
+	// Cosecha acumulada por nº de corte (para la gráfica circular)
+	$: harvestByCut = (() => {
+		const m = new Map<number, number>();
+		for (const r of results ?? []) {
+			m.set(r.cutNumber, (m.get(r.cutNumber) ?? 0) + Number(r.harvestTonsMs ?? 0));
+		}
+		return [...m.entries()].sort((a, b) => a[0] - b[0]);
+	})();
+
+	let areaPrefilled = false;
+	$: if (digitalTwin && !areaPrefilled) {
+		const area = Number(digitalTwin.properties?.area);
+		if (area > 0) initialParams.areaHa = Math.round(area * 100) / 100;
+		areaPrefilled = true;
+	}
 </script>
 
 <h1>Simulación {digitalTwinId} - {simulationId}</h1>
@@ -179,7 +197,7 @@
 		</pre>
 	</div>
 	<div class="card" style="grid-area: map">
-		<img src={simulation_example_img} height="100%" width="100%" alt="Mapa" />
+		<SimulationParcel {digitalTwin} status={digitalTwinStatus} />
 	</div>
 	<div class="card" style="grid-area: charts;">
 		<h3 class="m-0">Gráficas</h3>
@@ -197,7 +215,7 @@
 											y: r.harvestTonsMs
 										};
 									}),
-									label: 'NDVI',
+									label: 'Cosecha (t MS)',
 									barPercentage: 0.3,
 									// Color green
 									backgroundColor: 'rgba(30, 200, 192, 0.6)'
@@ -229,19 +247,32 @@
 					data={{
 						type: 'doughnut',
 						data: {
-							labels: ['Red', 'Blue', 'Yellow'],
+							labels: harvestByCut.map(([n]) => `Corte ${n}`),
 							datasets: [
 								{
-									label: 'My First Dataset',
-									data: [300, 50, 100],
-									backgroundColor: ['rgb(255, 99, 132)', 'rgb(54, 162, 235)', 'rgb(255, 205, 86)'],
+									label: 'Cosecha (t MS)',
+									data: harvestByCut.map(([, t]) => Math.round(t * 100) / 100),
+									backgroundColor: ['#2f7d3a', '#5fa14a', '#8cc063', '#b5c76a', '#d3d98c', '#e9e7b4'],
 									hoverOffset: 4
 								}
 							]
 						},
 						options: {
 							responsive: true,
-							maintainAspectRatio: false
+							maintainAspectRatio: false,
+							plugins: {
+								title: {
+									display: true,
+									text: 'Cosecha por nº de corte',
+									font: {
+										size: 15
+									}
+								},
+								legend: {
+									position: 'bottom',
+									labels: { boxWidth: 10, font: { size: 10 } }
+								}
+							}
 						}
 					}}
 				/>

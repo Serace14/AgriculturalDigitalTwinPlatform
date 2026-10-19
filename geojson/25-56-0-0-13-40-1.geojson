@@ -1,0 +1,113 @@
+{
+ "crs": {
+  "type": "EPSG",
+  "properties": {
+   "code": "4258"
+  }
+ },
+ "geometry": {
+  "type": "Polygon",
+  "coordinates": [
+   [
+    [
+     0.89346331,
+     41.77698868
+    ],
+    [
+     0.89337028,
+     41.77710711
+    ],
+    [
+     0.89317363,
+     41.77733632
+    ],
+    [
+     0.89291629,
+     41.77762251
+    ],
+    [
+     0.89264985,
+     41.77790312
+    ],
+    [
+     0.89282521,
+     41.77835719
+    ],
+    [
+     0.8929829,
+     41.77865297
+    ],
+    [
+     0.89324417,
+     41.77907395
+    ],
+    [
+     0.89562427,
+     41.77837509
+    ],
+    [
+     0.89553982,
+     41.77812074
+    ],
+    [
+     0.89547141,
+     41.77799753
+    ],
+    [
+     0.8954412,
+     41.77794305
+    ],
+    [
+     0.89543664,
+     41.77793494
+    ],
+    [
+     0.89511691,
+     41.77728485
+    ],
+    [
+     0.89462112,
+     41.77781336
+    ],
+    [
+     0.89389,
+     41.77729263
+    ],
+    [
+     0.89381418,
+     41.77723856
+    ],
+    [
+     0.89346331,
+     41.77698868
+    ]
+   ]
+  ]
+ },
+ "properties": {
+  "location": {
+   "province": "LLEIDA",
+   "city": "BELLCAIRE D'URGELL",
+   "municipality": "BELLCAIRE D'URGELL",
+   "geographicSpot": "BELLCAIRE D'URGELL",
+   "ccaa": "CATALUÑA"
+  },
+  "crop": {
+   "id": "",
+   "name": "ALFALFA",
+   "varietyId": "",
+   "variety": ""
+  },
+  "slope": 41,
+  "area": 3.2403,
+  "areaSIGPAC": 3.2403,
+  "parcelUse": "TA",
+  "irrigationCoef": 100,
+  "admisibility": 0,
+  "rainfedOrIrrigated": "Irrigated",
+  "notes": "Nombre de referencia en finca: JORDI ESCOLA - CAMP"
+ },
+ "type": "Feature",
+ "id": "25-56-0-0-13-40-1",
+ "year": 2024
+}

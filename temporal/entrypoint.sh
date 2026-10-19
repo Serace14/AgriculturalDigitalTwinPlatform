@@ -20,4 +20,26 @@ python3 /etc/temporal/workflows/25-56-0-0-8-162-1/etl/activities/init_workers.py
 python3 /etc/temporal/workflows/25-56-0-0-8-162-1/prediction/init_workers.py &
 python3 /etc/temporal/workflows/25-56-0-0-8-162-1/simulations/init_workers.py &
 
+# 25-153-0-0-30-3-1 (alfalfa)
+python3 /etc/temporal/workflows/25-153-0-0-30-3-1/etl/static-info/init_workers.py &
+python3 /etc/temporal/workflows/25-153-0-0-30-3-1/etl/activities/init_workers.py &
+python3 /etc/temporal/workflows/25-153-0-0-30-3-1/prediction/init_workers.py &
+python3 /etc/temporal/workflows/25-153-0-0-30-3-1/simulations/init_workers.py &
+
+# 25-56-0-0-8-219-1 (alfalfa)
+python3 /etc/temporal/workflows/25-56-0-0-8-219-1/etl/static-info/init_workers.py &
+python3 /etc/temporal/workflows/25-56-0-0-8-219-1/etl/activities/init_workers.py &
+python3 /etc/temporal/workflows/25-56-0-0-8-219-1/prediction/init_workers.py &
+python3 /etc/temporal/workflows/25-56-0-0-8-219-1/simulations/init_workers.py &
+
+# 25-56-0-0-13-40-1 (alfalfa)
+python3 /etc/temporal/workflows/25-56-0-0-13-40-1/etl/static-info/init_workers.py &
+python3 /etc/temporal/workflows/25-56-0-0-13-40-1/etl/activities/init_workers.py &
+python3 /etc/temporal/workflows/25-56-0-0-13-40-1/prediction/init_workers.py &
+python3 /etc/temporal/workflows/25-56-0-0-13-40-1/simulations/init_workers.py &
+
+# 25-56-0-0-8-162-1 (alfalfa) - eventos
+python3 /etc/temporal/workflows/25-56-0-0-8-162-1/watcher/init_workers.py &
+python3 /etc/temporal/workflows/25-56-0-0-8-162-1/watcher/watcher.py &
+
 tail -f /dev/null
