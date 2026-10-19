@@ -9,7 +9,8 @@ import type {
 	CropStats,
 	YieldPrediction,
 	SimulationInfo,
-	Command
+	Command,
+	NewCommand
 } from '../Domain';
 
 interface IDigitalTwinsService {
@@ -49,6 +50,7 @@ interface IDigitalTwinsService {
 	speedSimulation(digitalTwinId: string, simulationId: string, speed: number): Promise<void>;
 	deleteSimulation(digitalTwinId: string, simulationId: string): Promise<void>;
 	getCommands(digitalTwinId: string): Promise<Command[]>;
+	createCommand(digitalTwinId: string, command: NewCommand): Promise<void>;
 }
 
 interface IUserService {

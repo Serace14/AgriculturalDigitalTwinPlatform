@@ -8,6 +8,7 @@ import type {
 	ForecastWeather,
 	HistoricalWeather,
 	NDVI,
+	NewCommand,
 	SimulationInfo,
 	YieldPrediction
 } from '../Domain';
@@ -50,6 +51,7 @@ interface IDigitalTwinsRepository {
 	speedSimulation(digitalTwinId: string, simulationId: string, speed: number): Promise<void>;
 	deleteSimulation(digitalTwinId: string, simulationId: string): Promise<void>;
 	getCommands(digitalTwinId: string): Promise<Command[]>;
+	createCommand(digitalTwinId: string, command: NewCommand): Promise<void>;
 }
 interface IUserRepository {
 	validateLogin(): Promise<string | null>;

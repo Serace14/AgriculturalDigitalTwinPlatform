@@ -291,14 +291,16 @@ func (mc *mongodbConn) DeleteSimulation(digitalTwinId string, simulationId strin
 }
 
 func (mc *mongodbConn) GetCommands(digitalTwinId string) ([]domain.Command, error) {
+	// Primero se ordena y después se limita: así salen los 10 comandos MÁS RECIENTES
+	// (antes se limitaba antes de ordenar y podían salir los 10 más antiguos).
 	pipeline := []bson.M{
-		{
-			"$limit": 10,
-		},
 		{
 			"$sort": bson.M{
 				"timestamp": -1,
 			},
+		},
+		{
+			"$limit": 10,
 		},
 	}
 	var ctx, cancel = context.WithTimeout(context.Background(), time.Duration(mc.timeout)*time.Second)
@@ -312,4 +314,21 @@ func (mc *mongodbConn) GetCommands(digitalTwinId string) ([]domain.Command, erro
 		return nil, err
 	}
 	return results, nil
+}
+
+// CreateCommand guarda un comando en la colección Commands del gemelo (mismo formato que
+// los que registra el watcher de Temporal: la duración se guarda en horas).
+func (mc *mongodbConn) CreateCommand(digitalTwinId string, command domain.Command) error {
+	var ctx, cancel = context.WithTimeout(context.Background(), time.Duration(mc.timeout)*time.Second)
+	defer cancel()
+	_, err := mc.client.Database(digitalTwinId).Collection(COMMANDS_COLLECTION).InsertOne(ctx, bson.M{
+		"timestamp": command.Timestamp,
+		"type":      command.Type,
+		"value":     command.Value,
+		"unit":      command.Unit,
+		"action":    command.Action,
+		"duration":  int64(command.Duration),
+		"automated": command.Automated,
+	})
+	return err
 }

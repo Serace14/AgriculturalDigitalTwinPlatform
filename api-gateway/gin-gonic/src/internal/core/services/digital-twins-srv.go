@@ -126,3 +126,7 @@ func (srv *digitalTwinsService) HandleNotifications(digitalTwinId string, notifi
 func (srv *digitalTwinsService) GetCommands(digitalTwinId string) ([]domain.Command, error) {
 	return srv.persistence.GetCommands(digitalTwinId)
 }
+
+func (srv *digitalTwinsService) CreateCommand(digitalTwinId string, command domain.Command) error {
+	return srv.persistence.CreateCommand(digitalTwinId, command)
+}

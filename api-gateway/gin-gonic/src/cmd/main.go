@@ -127,6 +127,7 @@ func setupRouter() *gin.Engine {
 	agrarianGroup.GET("/enclosures/:id/simulations", enclosuresHandler.GetSimulations)
 	agrarianGroup.DELETE("/enclosures/:id/simulations/:simulationId", enclosuresHandler.DeleteSimulation)
 	agrarianGroup.GET("/enclosures/:id/commands", enclosuresHandler.GetCommands)
+	agrarianGroup.POST("/enclosures/:id/commands", enclosuresHandler.CreateCommand)
 	r.GET("/enclosures/simulations/status/ws", enclosuresHandler.GetSimulationStatus)
 	r.GET("/enclosures/:id/sensor-stream", enclosuresHandler.GetSensorStreamData)
 	r.GET("/enclosures/:id/notifications", enclosuresHandler.GetNotifications)

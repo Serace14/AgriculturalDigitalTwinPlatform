@@ -265,6 +265,14 @@ type Notifications = {
 	importance: string;
 };
 
+type NewCommand = {
+	type: string;
+	action: 'start' | 'stop';
+	value: number;
+	unit: string;
+	duration: number;
+};
+
 type Command = {
 	type: string;
 	value: any;
@@ -293,6 +301,7 @@ export type {
 	SimulationInfo,
 	Notifications,
 	Command,
+	NewCommand,
 };
 
 export { Role };

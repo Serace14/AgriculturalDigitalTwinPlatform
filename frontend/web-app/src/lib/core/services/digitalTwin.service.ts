@@ -3,7 +3,8 @@ import type {
 	NDVI,
 	ForecastWeather,
 	HistoricalWeather,
-	DigitalTwin
+	DigitalTwin,
+	NewCommand
 } from '../Domain';
 import type { IParcelsRepository } from '../ports/Repository';
 import type { IDigitalTwinsService } from '../ports/Services';
@@ -84,6 +85,9 @@ class DigitalTwinsService implements IDigitalTwinsService {
 	}
 	getCommands(digitalTwinId: string) {
 		return this.parcelsRepository.getCommands(digitalTwinId);
+	}
+	createCommand(digitalTwinId: string, command: NewCommand) {
+		return this.parcelsRepository.createCommand(digitalTwinId, command);
 	}
 }
 

@@ -790,3 +790,50 @@ func (hdl *DigitalTwinsHTTPHandler) GetCommands(c *gin.Context) {
 	}
 	c.JSON(200, commands)
 }
+
+// -----------------------------------------------------------------------
+
+type CreateCommandIn struct {
+	Type     string  `json:"type" binding:"required"`
+	Action   string  `json:"action" binding:"required"`
+	Value    float64 `json:"value"`
+	Unit     string  `json:"unit"`
+	Duration int64   `json:"duration" binding:"required"` // horas
+}
+
+// @Summary Create Command
+// @Description Create a manual command for the digital twin
+// @Tags Enclosures
+// @Accept  json
+// @Produce  json
+// @Param digitalTwinId query string true "Digital Twin Id"
+// @Success 200 {object} string
+// @Failure 400 {object} apperrors.Error
+// @Failure 500 {object} apperrors.Error
+// @Router /enclosures/:id/commands [post]
+func (hdl *DigitalTwinsHTTPHandler) CreateCommand(c *gin.Context) {
+	digitalTwinId := c.Param("id")
+	in := CreateCommandIn{}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"message": err.Error(), "valid_input": map[string]string{"type": "string, required", "action": "start|stop, required", "value": "float64", "unit": "string", "duration": "hours (1-168), required"}})
+		return
+	}
+	if (in.Action != "start" && in.Action != "stop") || in.Duration < 1 || in.Duration > 168 || in.Value < 0 {
+		c.AbortWithStatusJSON(400, gin.H{"message": apperrors.ErrInvalidInput.Error()})
+		return
+	}
+	command := domain.Command{
+		Timestamp: time.Now(),
+		Type:      in.Type,
+		Value:     in.Value,
+		Unit:      in.Unit,
+		Action:    in.Action,
+		Duration:  time.Duration(in.Duration),
+		Automated: false,
+	}
+	if err := hdl.digitalTwinsService.CreateCommand(digitalTwinId, command); err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"message": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"message": "command created"})
+}

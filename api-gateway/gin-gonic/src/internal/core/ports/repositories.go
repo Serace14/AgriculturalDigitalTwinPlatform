@@ -31,6 +31,7 @@ type DigitalTwinsRepository interface {
 	GetSimulations(digitalTwin string) ([]domain.Simulation, error)
 	DeleteSimulation(digitalTwin string, simulationId string) error
 	GetCommands(digitalTwin string) ([]domain.Command, error)
+	CreateCommand(digitalTwin string, command domain.Command) error
 }
 
 type DigitalTwinsWorkflows interface {

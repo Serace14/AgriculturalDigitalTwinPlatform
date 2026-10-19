@@ -8,7 +8,8 @@ import type {
 	DigitalTwin,
 	YieldPrediction,
 	SimulationInfo,
-	Command
+	Command,
+	NewCommand
 } from '$lib/core/Domain';
 import { ServerError } from '$lib/core/Exceptions';
 import type { IParcelsRepository } from '$lib/core/ports/Repository';
@@ -369,6 +370,21 @@ class HttpDigitalTwinsRepository implements IParcelsRepository {
 					return response.data;
 				}
 				throw new ServerError('Error al obtener los comandos');
+			})
+			.catch((e) => {
+				throw new ServerError(e);
+			});
+	}
+	async createCommand(digitalTwinId: string, command: NewCommand): Promise<void> {
+		return this.http
+			.post<void>(`enclosures/${digitalTwinId}/commands`, command, {
+				withCredentials: true
+			})
+			.then((response) => {
+				if (response.status === 200) {
+					return;
+				}
+				throw new ServerError('Error al crear el comando');
 			})
 			.catch((e) => {
 				throw new ServerError(e);

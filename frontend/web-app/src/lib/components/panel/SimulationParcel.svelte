@@ -1,30 +1,40 @@
 <script lang="ts">
-	// Parcela de alfalfa dibujada con su geometría real. El color cambia con el rebrote:
-	// recién cortada (rastrojo claro) -> verde intenso al acercarse a los GDD necesarios para el
-	// siguiente corte; en reposo invernal, tono pajizo. Sustituye a la foto de árboles de la plantilla.
-	import type { DigitalTwin } from '$lib/core/Domain';
+	// Vista cenital de parcelas de alfalfa en 5 estados (de izquierda a derecha: recién cortada,
+	// rebrote, vegetativo, floración y reposo invernal). Sustituye a la imagen de árboles de la plantilla.
+	// Un marco resalta la columna que se corresponde con el estado del gemelo simulado y debajo se
+	// muestra el detalle (etapa, grados-día hacia el próximo corte, lluvia...).
+	import img from '$lib/assets/simulation-example.jpg';
 
-	export let digitalTwin: DigitalTwin | undefined = undefined;
 	export let status: any = null;
+	// Se acepta (y se ignora) para no romper usos antiguos del componente
+	export let digitalTwin: unknown = undefined;
+	$: void digitalTwin;
 
 	// Mismo valor que GDD_PER_CUT en simulations/harvest_ai_simulation.py
 	const GDD_PER_CUT = 580;
-	const W = 420;
-	const H = 300;
-	const PAD = 24;
+
+	// Geometría de las columnas dentro de la imagen (fracción del ancho; ver scripts de generación)
+	const MARGIN = 0.012;
+	const PATH = 0.02;
+	const COL_W = (1 - 2 * MARGIN - 4 * PATH) / 5;
+	const colLeft = (i: number) => (MARGIN + i * (COL_W + PATH)) * 100;
+
+	const COLUMNS = ['Corte', 'Rebrote', 'Vegetativo', 'Floración', 'Reposo'];
 
 	$: twin = status?.digitalTwin;
 	$: stage = twin?.crop_stage as string | undefined;
 	$: gdd = Number(twin?.gdd_accumulated ?? 0);
 	$: progress = Math.max(0, Math.min(1, gdd / GDD_PER_CUT));
 
-	const mix = (a: number[], b: number[], t: number) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
-	const STUBBLE = [196, 207, 130]; // recién cortada
-	const MATURE = [38, 116, 52]; // lista para cortar
-	const DORMANT = [190, 176, 140]; // reposo invernal
-
-	$: rgb = !twin ? [150, 170, 140] : stage === 'Dormant' ? DORMANT : mix(STUBBLE, MATURE, progress);
-	$: fill = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+	// Columna de la imagen que mejor representa el estado actual
+	$: active = (() => {
+		if (!twin) return -1;
+		if (stage === 'Dormant') return 4;
+		if (stage === 'ReadyToCut' || progress >= 0.85) return 3;
+		if (progress < 0.12) return 0;
+		if (progress < 0.45) return 1;
+		return 2;
+	})();
 
 	const STAGE_LABEL: Record<string, string> = {
 		Dormant: 'Reposo invernal',
@@ -33,48 +43,28 @@
 	};
 	$: stageLabel = stage ? (STAGE_LABEL[stage] ?? stage) : 'Sin simulación';
 
-	// Proyección lon/lat -> SVG (corrigiendo la deformación en longitud por la latitud)
-	$: ring = ((digitalTwin?.geometry as any)?.coordinates?.[0] ?? []) as number[][];
-	$: points = (() => {
-		if (!ring.length) return '';
-		const lats = ring.map((p) => p[1]);
-		const kx = Math.cos((((Math.min(...lats) + Math.max(...lats)) / 2) * Math.PI) / 180);
-		const xs = ring.map((p) => p[0] * kx);
-		const minX = Math.min(...xs);
-		const minLat = Math.min(...lats);
-		const w = Math.max(...xs) - minX || 1e-9;
-		const h = Math.max(...lats) - minLat || 1e-9;
-		const s = Math.min((W - 2 * PAD) / w, (H - 2 * PAD) / h);
-		const offX = (W - w * s) / 2;
-		const offY = (H - h * s) / 2;
-		return ring
-			.map((p, i) => `${(offX + (xs[i] - minX) * s).toFixed(1)},${(H - offY - (p[1] - minLat) * s).toFixed(1)}`)
-			.join(' ');
-	})();
-
 	$: t = status?.time;
 	$: dateLabel = t ? `${t.day}/${t.month}/${t.year ?? ''}` : '--';
 	$: temp = status?.weather?.temperature;
-	const id = `p${Math.random().toString(36).slice(2, 8)}`;
 </script>
 
 <div class="wrap">
-	<svg viewBox="0 0 {W} {H}" role="img" aria-label="Parcela de alfalfa">
-		<defs>
-			<clipPath id="clip-{id}"><polygon {points} /></clipPath>
-			<pattern id="rows-{id}" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(18)">
-				<rect width="9" height="9" fill="transparent" />
-				<rect width="4" height="9" fill="rgba(0,0,0,0.10)" />
-			</pattern>
-		</defs>
-		<rect width={W} height={H} fill="#e7efdd" rx="8" />
-		{#if points}
-			<polygon {points} {fill} stroke="#2f4f2f" stroke-width="2" stroke-linejoin="round" style="transition: fill 0.4s" />
-			<rect width={W} height={H} fill="url(#rows-{id})" clip-path="url(#clip-{id})" />
+	<div class="picture">
+		<img src={img} alt="Parcelas de alfalfa en distintos estados de crecimiento" />
+		{#if active >= 0}
+			<div class="marker" style="left: {colLeft(active)}%; width: {COL_W * 100}%"></div>
 		{/if}
-	</svg>
+	</div>
+	<div class="labels">
+		{#each COLUMNS as label, i}
+			<span class:on={i === active} style="left: {colLeft(i)}%; width: {COL_W * 100}%">{label}</span>
+		{/each}
+	</div>
 	<div class="info">
-		<div class="row"><strong>{stageLabel}</strong><span>{dateLabel}{temp !== undefined ? ` · ${Number(temp).toFixed(1)} °C` : ''}</span></div>
+		<div class="row">
+			<strong>{stageLabel}</strong>
+			<span>{dateLabel}{temp !== undefined ? ` · ${Number(temp).toFixed(1)} °C` : ''}</span>
+		</div>
 		<div class="bar" title="Grados-día acumulados desde el último corte">
 			<div class="bar-fill" style="width: {progress * 100}%"></div>
 		</div>
@@ -93,12 +83,44 @@
 	.wrap {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.35rem;
 	}
-	svg {
+	.picture {
+		position: relative;
+		line-height: 0;
+	}
+	img {
 		width: 100%;
 		height: auto;
-		max-height: 340px;
+		border-radius: 6px;
+	}
+	.marker {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		box-sizing: border-box;
+		border: 3px solid #fff;
+		border-radius: 4px;
+		box-shadow:
+			0 0 0 2px rgba(20, 60, 25, 0.75),
+			0 0 14px rgba(255, 255, 255, 0.8);
+		transition: left 0.4s;
+		pointer-events: none;
+	}
+	.labels {
+		position: relative;
+		height: 1.1rem;
+		font-size: 0.7rem;
+		opacity: 0.75;
+	}
+	.labels span {
+		position: absolute;
+		text-align: center;
+		white-space: nowrap;
+	}
+	.labels span.on {
+		font-weight: 700;
+		opacity: 1;
 	}
 	.row {
 		display: flex;

@@ -39,6 +39,7 @@ type DigitalTwinsService interface {
 	DeleteSimulation(digitalTwin string, simulationId string) error
 	HandleNotifications(digitalTwinId string, notificationType string, value interface{}) error
 	GetCommands(digitalTwin string) ([]domain.Command, error)
+	CreateCommand(digitalTwin string, command domain.Command) error
 }
 
 type JWTService interface {
